@@ -78,6 +78,9 @@ def email_summary(item, project, state, save, kind):
                           for k, v in state.get('uploads', {}).items() if v.get('id')},
               'workflow_run': ('https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
                               if os.getenv('GITHUB_RUN_ID') else None}
+    report['soundtracks'] = {kind: json.loads((location/'soundtrack.json').read_text())
+                            for kind, location in [('long',project),('short',project/'short')]
+                            if (location/'soundtrack.json').exists()}
     display_zone = ZoneInfo(os.getenv('VIDEO_TIMEZONE', 'America/New_York'))
     report['display_timezone'] = str(display_zone)
     report['local_publish_times'] = {

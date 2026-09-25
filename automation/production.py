@@ -10,7 +10,10 @@ def metadata(project):
     path = project / 'metadata.json'
     sources = {kind: json.loads((root / 'storyboard.json').read_text())
                for kind, root in [('long', project), ('short', project / 'short')]}
-    signature = p.fingerprint(sources)
+    soundtracks = {kind: json.loads((root/'soundtrack.json').read_text())
+                  for kind, root in [('long',project),('short',project/'short')]
+                  if (root/'soundtrack.json').exists()}
+    signature = p.fingerprint({'sources':sources,'soundtracks':soundtracks}) if soundtracks else p.fingerprint(sources)
     stamp = project / 'metadata-source.json'
     if path.exists():
         if not stamp.exists() or json.loads(stamp.read_text())['signature'] != signature:
@@ -41,6 +44,9 @@ def metadata(project):
         value = json.loads(''.join(parts))
     for kind in ('long', 'short'):
         item = value[kind]
+        for credit in soundtracks.get(kind, {}).get('credits', []):
+            if credit not in item['description']:
+                item['description'] += '\n\n' + credit
         if not isinstance(item['title'], str) or not 1 <= len(item['title']) <= 100 or any(c in item['title'] for c in '<>'):
             raise ValueError('Invalid YouTube title.')
         if not isinstance(item['description'], str) or len(item['description'].encode()) > 5000:

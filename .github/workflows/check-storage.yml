@@ -2,6 +2,10 @@ name: Check cloud storage connection
 on:
   workflow_dispatch:
     inputs:
+      verify_audio:
+        description: Download and verify the audio library without generating a video
+        type: boolean
+        default: false
       inspect_progress:
         description: List saved production files instead of writing a connection probe
         type: boolean
@@ -21,13 +25,21 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           project_id: tell-me-why-channel
       - uses: google-github-actions/setup-gcloud@v3
+      - name: Verify uploaded audio library
+        if: inputs.verify_audio
+        env:
+          GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/audio-check"
+          "$RUNNER_TEMP/audio-check/bin/pip" install google-cloud-storage
+          "$RUNNER_TEMP/audio-check/bin/python" -m soundtrack --library audio/library.json --bucket "$GCS_BUCKET"
       - name: Inspect saved production files
         if: inputs.inspect_progress
         env:
           GCS_BUCKET: ${{ vars.GCS_BUCKET }}
         run: gcloud storage ls --long "gs://$GCS_BUCKET/pipeline/projects/**"
       - name: Check private bucket read and write access
-        if: ${{ !inputs.inspect_progress }}
+        if: ${{ !inputs.inspect_progress && !inputs.verify_audio }}
         env:
           GCS_BUCKET: ${{ vars.GCS_BUCKET }}
         run: |

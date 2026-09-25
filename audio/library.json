@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "music": [
+    {
+      "id": "toys_are_us",
+      "file": "music/Toys Are Us - Blue Deer Studio.mp3",
+      "duration_seconds": 195.283,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "b7743ee1ddb987d58ac30669ca4a89dc315cb83c9390b56ec9796394a73befb3",
+      "selection_tags": [
+        "playful",
+        "light",
+        "curious"
+      ],
+      "selection_tags_note": "Initial selection hints; adjust after reviewing a mix."
+    },
+    {
+      "id": "way_back_home",
+      "file": "music/Way Back Home - Simon Herody.mp3",
+      "duration_seconds": 221.143,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "4f2e03a6f80be32d756515b1bbe20d365a0c303fbc5544341bb6262fa54e4723",
+      "selection_tags": [
+        "calm",
+        "warm",
+        "reflective"
+      ],
+      "selection_tags_note": "Initial selection hints; adjust after reviewing a mix."
+    },
+    {
+      "id": "singularity",
+      "file": "music/Singularity - The Grey Room _ Density & Time.mp3",
+      "duration_seconds": 313.953,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "0240748c4195eb14b482314c2f343db400a771d292dfc1ad15709b0dac0c1fa3",
+      "selection_tags": [
+        "cinematic",
+        "science",
+        "mysterious"
+      ],
+      "selection_tags_note": "Initial selection hints; adjust after reviewing a mix."
+    }
+  ],
+  "sfx": [
+    {
+      "id": "whoosh",
+      "file": "sfx/Rake Swing Whoosh Hall.mp3",
+      "duration_seconds": 7.925,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "whoosh",
+      "sha256": "49bb5bd8f12b722b59dbdd933906e2ed81bb85bc35dcd440310888686680c63f",
+      "start_seconds": 0.5,
+      "clip_seconds": 1.2
+    },
+    {
+      "id": "pop",
+      "file": "sfx/Pop.mp3",
+      "duration_seconds": 2.763,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "pop",
+      "sha256": "f71fc127fc5d478357e05ba4c6e1d2fcaa6b7f56c42329f54648d23850f5f764",
+      "start_seconds": 0.3,
+      "clip_seconds": 1.0
+    },
+    {
+      "id": "impact",
+      "file": "sfx/Windshield Hit With Bar.mp3",
+      "duration_seconds": 1.173,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "impact",
+      "sha256": "4965ddebcb560e7ca647357979e2966d81627fd529c9d90146fe5b21886667d5",
+      "start_seconds": 0,
+      "clip_seconds": 1.0
+    },
+    {
+      "id": "siren",
+      "file": "sfx/Emergency Siren Short Burst.mp3",
+      "duration_seconds": 1.904,
+      "source": "User-provided Audio Library download",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "siren",
+      "usage_note": "Use only for a relevant alarm or emergency moment; not a routine transition.",
+      "sha256": "e0c777e35466f86e7f4dc0c069814179a40e94ad63859ab25c98a01c3687b02b",
+      "start_seconds": 0,
+      "clip_seconds": 1.0
+    }
+  ],
+  "defaults": {
+    "attribution_required": false
+  }
+}

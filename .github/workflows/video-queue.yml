@@ -51,6 +51,7 @@ jobs:
       RUNPOD_EMOTION: Curious and conversational, with subtle excitement
       RUNPOD_EMOTION_STRENGTH: '0.5'
       IMAGE_REFERENCE: characters/updated_base.png
+      AUDIO_LIBRARY: audio/library.runtime.json
       SMTP_HOST: ${{ vars.SMTP_HOST }}
       SMTP_PORT: '587'
       SMTP_FROM: ${{ vars.SMTP_FROM }}
@@ -80,6 +81,8 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements.txt
+      - name: Download approved audio library
+        run: .venv/bin/python -m soundtrack --library audio/library.json --bucket "$GCS_BUCKET"
       - name: Process first unfinished idea
         id: production
         run: .venv/bin/python -m automation.queue_runner --queue video_queue.json --work-root "$VIDEO_WORK_ROOT"
@@ -98,3 +101,5 @@ jobs:
             ${{ steps.production.outputs.project }}/metadata.json
             ${{ steps.production.outputs.project }}/thumbnail.jpg
             ${{ steps.production.outputs.project }}/upload-details.json
+            ${{ steps.production.outputs.project }}/soundtrack.json
+            ${{ steps.production.outputs.project }}/short/soundtrack.json

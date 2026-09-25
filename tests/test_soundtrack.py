@@ -1,0 +1,131 @@
+import array
+import json
+import math
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+import wave
+from unittest.mock import patch, Mock
+
+import pipeline as p
+import soundtrack as s
+
+
+class SoundtrackTests(unittest.TestCase):
+    def test_library_blocks_unknown_licenses_and_escaping_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'library.json'
+            entry={'id':'track','file':'track.wav','attribution_required':False,'sha256':'a'*64}
+            for change in ({'file':'../outside.wav'},{'attribution_required':None},
+                           {'attribution_required':True,'attribution_text':None}):
+                path.write_text(json.dumps({'music':[{**entry,**change}]}))
+                with self.assertRaises(ValueError): s.load_library(path,check_files=False)
+
+    def test_cues_resolve_to_words_and_reject_dense_or_invented_effects(self):
+        entries=[{'id':'music','kind':'music','attribution_required':True,'attribution_text':'Music credit'},
+                 {'id':'pop','kind':'sfx','attribution_required':False,'clip_seconds':1},
+                 {'id':'siren','kind':'sfx','attribution_required':False,'clip_seconds':1}]
+        words=[{'word':'Look','start':1},{'word':'bigger','start':3},{'word':'screen','start':20}]
+        plan={'music_id':'music','effects':[{'effect_id':'pop','word_index':2}]}
+        result=s.resolve_plan(plan,entries,words,60)
+        self.assertEqual(result['effects'][0]['at_seconds'],20)
+        self.assertEqual(result['credits'],['Music credit'])
+        for effects in ([{'effect_id':'unknown','word_index':0}],
+                        [{'effect_id':'pop','word_index':90}],
+                        [{'effect_id':'siren','word_index':0}],
+                        [{'effect_id':'pop','word_index':i} for i in (0,1)]):
+            with self.assertRaises(ValueError): s.resolve_plan({**plan,'effects':effects},entries,words,60)
+
+    def test_cached_plan_makes_no_new_api_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'storyboard.json').write_text(json.dumps({'title':'Test','scenes':[]}))
+            (root/'alignment.json').write_text(json.dumps({'words':[{'word':'Hello','start':0,'end':1}]}))
+            entries=[{'id':'music','kind':'music','path':root/'music.wav','attribution_required':False},
+                     {'id':'pop','kind':'sfx','path':root/'pop.wav','attribution_required':False}]
+            response=Mock();response.json.return_value={'status':'completed','output':[{'content':[
+                {'type':'output_text','text':json.dumps({'music_id':'music','effects':[]})}]}]}
+            with patch.object(p,'api_post',return_value=response) as api, patch.object(p,'duration',return_value=30):
+                self.assertEqual(s.make_plan(root,entries),s.make_plan(root,entries))
+                self.assertEqual(api.call_count,1)
+                s.make_plan(root,entries+[{'id':'new_track','kind':'music','path':root/'new.wav','attribution_required':False}])
+                self.assertEqual(api.call_count,1)
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
+    def test_real_mix_ducks_music_preserves_duration_and_resumes_after_interruption(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            p.run_ffmpeg(['-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=8',
+                '-f','lavfi','-i',"aevalsrc=if(between(t\\,2\\,4)\\,0.4*sin(2*PI*1000*t)\\,0):s=48000:d=8",
+                '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',str(root/'video.mp4')])
+            for name,hz in [('music',180),('pop',2000)]:
+                p.run_ffmpeg(['-f','lavfi','-i',f'sine=frequency={hz}:duration=8:sample_rate=48000',str(root/f'{name}.wav')])
+            entries=[{'id':name,'kind':'music' if name=='music' else 'sfx','path':root/f'{name}.wav',
+                      'file':f'{name}.wav','sha256':s.file_hash(root/f'{name}.wav')} for name in ('music','pop')]
+            plan={'music_id':'music','credits':[], 'effects':[{'effect_id':'pop','word_index':0,
+                  'word':'test','at_seconds':6,'source_start':0,'clip_seconds':1}]}
+            original=s.file_hash(root/'video.mp4')
+            replace=Path.replace
+            def interrupted(path,target):
+                if path.name=='soundtrack.partial.mp4': raise OSError('simulated interruption')
+                return replace(path,target)
+            with patch.object(Path,'replace',interrupted):
+                with self.assertRaises(OSError): s.mix_video(root,entries,plan)
+            self.assertEqual(s.file_hash(root/'video.mp4'),original)
+            s.mix_video(root,entries,plan)
+            self.assertAlmostEqual(p.duration(root/'video.mp4'),8,places=1)
+            self.assertEqual(s.file_hash(root/'video.narration.mp4'),original)
+            mixed=s.file_hash(root/'video.mp4')
+            with patch.object(p,'run_ffmpeg') as render:
+                s.mix_video(root,entries,plan)
+                render.assert_not_called()
+            self.assertEqual(s.file_hash(root/'video.mp4'),mixed)
+            data=subprocess.run(['ffmpeg','-v','error','-i',str(root/'video.mp4'),'-vn','-af',
+                'bandpass=f=180:t=h:w=20','-f','f32le','-ac','1','-ar','48000','-'],capture_output=True,check=True).stdout
+            samples=array.array('f',data)
+            def rms(start,end):
+                values=samples[int(start*48000):int(end*48000)]
+                return math.sqrt(sum(v*v for v in values)/len(values))
+            self.assertLess(rms(2.8,3.3),rms(1.0,1.5)*.65)
+            self.assertGreater(rms(5,5.5),rms(2.8,3.3)*1.5)
+            with patch.object(p,'run_ffmpeg') as render:
+                s.mix_video(root,entries,{'music_id':None,'effects':[],'credits':[]})
+                render.assert_not_called()
+            self.assertEqual(s.file_hash(root/'video.mp4'),original)
+            s.mix_video(root,entries,{**plan,'music_id':None})
+            self.assertAlmostEqual(p.duration(root/'video.mp4'),8,places=1)
+
+
+    def test_new_local_audio_is_discovered_without_catalog_edit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'music').mkdir()
+            with wave.open(str(root/'music'/'Fresh Calm Track.wav'),'wb') as wav:
+                wav.setparams((1,2,8000,0,'NONE','not compressed'))
+                wav.writeframes(b'\0\0'*8000)
+            path=root/'library.json';path.write_text('{"music":[],"sfx":[]}')
+            entries=s.load_library(path)
+            self.assertEqual(len(entries),1)
+            self.assertEqual(entries[0]['title'],'Fresh Calm Track')
+            self.assertEqual(entries[0]['kind'],'music')
+
+    def test_narration_only_is_a_valid_plan(self):
+        self.assertEqual(s.resolve_plan({'music_id':None,'effects':[]},[],[],30),
+                         {'music_id':None,'effects':[],'credits':[]})
+
+    def test_required_credit_is_written_to_metadata_once(self):
+        from automation.production import metadata
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'short').mkdir()
+            for location in (root,root/'short'):
+                (location/'storyboard.json').write_text('{"title":"Test","scenes":[]}')
+                (location/'soundtrack.json').write_text('{"credits":["Music by Example, CC BY"]}')
+            value={kind:{'title':'Test','description':'An explanation.','tags':['test'],'thumbnail_prompt':'Art'}
+                   for kind in ('long','short')}
+            response=Mock();response.json.return_value={'status':'completed','output':[{'content':[
+                {'type':'output_text','text':json.dumps(value)}]}]}
+            with patch.object(p,'api_post',return_value=response):
+                metadata(root);metadata(root)
+            saved=json.loads((root/'metadata.json').read_text())
+            self.assertEqual(saved['long']['description'].count('Music by Example, CC BY'),1)

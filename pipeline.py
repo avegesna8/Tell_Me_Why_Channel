@@ -761,11 +761,18 @@ def main():
     parser.add_argument("--height", type=int, help="Defaults to 1080 landscape / 1920 portrait; use 360 for a quick preview")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--captions", choices=["burn", "soft", "none"], default="burn")
+    parser.add_argument("--audio-library", type=Path, default=os.getenv("AUDIO_LIBRARY"),
+                        help="Catalog for automatic music and timed effects; requires continuous narration")
     parser.add_argument("--music", type=Path)
     parser.add_argument("--music-volume", type=float, default=0.12)
     args = parser.parse_args()
     try:
         runpod = None
+        if args.audio_library and args.command in ('run', 'render', 'short'):
+            from soundtrack import load_library
+            if args.music or args.narration_mode != 'continuous':
+                raise ValueError('--audio-library requires continuous narration and cannot be combined with --music.')
+            load_library(args.audio_library)
         if not 30 <= args.short_seconds <= 60:
             raise ValueError("--short-seconds must be between 30 and 60.")
         if args.with_short and args.command != "run":
@@ -811,6 +818,12 @@ def main():
             create_short(board, args.out, seconds=args.short_seconds, voice=args.voice, runpod=runpod,
                          image_reference=args.image_reference, fps=args.fps, subtitle_mode=args.captions,
                          music=args.music, music_volume=args.music_volume)
+        if args.audio_library and args.command in ('run', 'render', 'short'):
+            from soundtrack import apply_to_video
+            if args.command != 'short':
+                apply_to_video(args.out, args.audio_library)
+            if args.command == 'short' or args.with_short:
+                apply_to_video(args.out / 'short', args.audio_library)
     except KeyboardInterrupt:
         parser.exit(130, "\nCancelled locally. Saved storyboard/assets/job IDs are kept. RunPod jobs may still be running; rerun to resume polling.\n")
     except (ValueError, RuntimeError, OSError, KeyError, subprocess.CalledProcessError) as exc:
