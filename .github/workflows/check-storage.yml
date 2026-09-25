@@ -1,6 +1,11 @@
 name: Check cloud storage connection
 on:
   workflow_dispatch:
+    inputs:
+      inspect_progress:
+        description: List saved production files instead of writing a connection probe
+        type: boolean
+        default: false
 permissions:
   contents: read
   id-token: write
@@ -16,7 +21,13 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           project_id: tell-me-why-channel
       - uses: google-github-actions/setup-gcloud@v3
+      - name: Inspect saved production files
+        if: inputs.inspect_progress
+        env:
+          GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+        run: gcloud storage ls --long "gs://$GCS_BUCKET/pipeline/projects/**"
       - name: Check private bucket read and write access
+        if: ${{ !inputs.inspect_progress }}
         env:
           GCS_BUCKET: ${{ vars.GCS_BUCKET }}
         run: |
