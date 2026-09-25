@@ -1,0 +1,85 @@
+name: Produce queued video
+on:
+  workflow_dispatch:
+    inputs:
+      review_action:
+        description: 'Action for the emailed package (leave IDs empty for normal production)'
+        type: choice
+        options:
+          - approve
+          - regenerate
+        default: approve
+      approve_id:
+        description: 'To approve an emailed package, paste its item ID'
+        required: false
+        type: string
+      approval_code:
+        description: 'Paste the approval code from that same review email'
+        required: false
+        type: string
+  schedule:
+    - cron: '17 13 * * *'
+concurrency:
+  group: video-production-queue
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  produce:
+    if: vars.ENABLE_VIDEO_AUTOMATION == 'true'
+    # Stable disk retains RunPod job IDs, resumable uploads and rendered assets.
+    runs-on: [self-hosted, linux, video-production]
+    timeout-minutes: 350
+    env:
+      REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
+      APPROVE_ITEM_ID: ${{ inputs.approve_id }}
+      APPROVAL_CODE: ${{ inputs.approval_code }}
+      VIDEO_WORK_ROOT: ${{ vars.VIDEO_WORK_ROOT }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_ENDPOINT_ID: ${{ vars.RUNPOD_ENDPOINT_ID }}
+      RUNPOD_MODEL_VERSION: ${{ vars.RUNPOD_MODEL_VERSION || '2' }}
+      RUNPOD_REFERENCE_AUDIO: ${{ vars.RUNPOD_REFERENCE_AUDIO }}
+      IMAGE_REFERENCE: characters/updated_base.png
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: '587'
+      SMTP_FROM: ${{ vars.SMTP_FROM }}
+      SUMMARY_EMAIL_TO: ${{ vars.SUMMARY_EMAIL_TO }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify persistent storage settings
+        run: |
+          test -n "$VIDEO_WORK_ROOT"
+          test -f "$RUNPOD_REFERENCE_AUDIO"
+          command -v ffmpeg
+          command -v ffprobe
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Process first unfinished idea
+        id: production
+        run: .venv/bin/python -m automation.queue_runner --queue video_queue.json --work-root "$VIDEO_WORK_ROOT"
+      - name: Save review package
+        if: always() && steps.production.outputs.project != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-review-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            ${{ steps.production.outputs.project }}/video.mp4
+            ${{ steps.production.outputs.project }}/short/video.mp4
+            ${{ steps.production.outputs.project }}/script.txt
+            ${{ steps.production.outputs.project }}/short/script.txt
+            ${{ steps.production.outputs.project }}/metadata.json
+            ${{ steps.production.outputs.project }}/thumbnail.jpg
+            ${{ steps.production.outputs.project }}/upload-details.json

@@ -1,0 +1,154 @@
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch, Mock
+
+import pipeline as p
+
+
+def board():
+    return {"title": "Test", "style_guide": "Watercolor", "aspect_ratio": "9:16",
+            "scenes": [{"id": i, "narration": text, "prompt": "Ocean waves",
+                        "camera_style": "Wide", "mood": "Calm", "estimated_duration": 1,
+                        "motion": "zoom" if i == 1 else "still", "transition": "fade" if i == 1 else "cut"}
+                       for i, text in enumerate(["One short scene.", "Another scene follows."], 1)]}
+
+
+class PipelineTests(unittest.TestCase):
+    def test_speech_requires_voice_and_uses_correct_custom_field(self):
+        with self.assertRaisesRegex(ValueError, "requires a voice"):
+            p.asset_payloads(board(), board()["scenes"][0], " ")
+        speech, _ = p.asset_payloads(board(), board()["scenes"][0], "speech:custom:123")
+        self.assertEqual(speech["voice"], "speech:custom:123")
+        self.assertNotIn("voice_uri", speech)
+
+    def test_validation_error_redacts_key(self):
+        response = Mock(ok=False, status_code=400)
+        response.json.return_value = {"code": 20012, "message": "voice is required; sk-test-secret"}
+        with patch.dict(p.os.environ, {"SILICONFLOW_API_KEY": "sk-test-secret"}), patch.object(
+            p.requests, "post", return_value=response
+        ):
+            with self.assertRaisesRegex(RuntimeError, "voice is required") as error:
+                p.api_post("https://api.siliconflow.com/v1", "SILICONFLOW_API_KEY", "/audio/speech", {})
+            self.assertNotIn("sk-test-secret", str(error.exception))
+
+    def test_429_distinguishes_quota_and_rate_limits(self):
+        for error, expected in [
+            ({"code": "insufficient_quota"}, "Check API billing"),
+            ({"code": "credit_balance_exhausted", "type": "insufficient_quota"}, "Add API credits"),
+            ({"code": "rate_limit_exceeded"}, "Wait at least 20 seconds"),
+            ({"code": None, "type": "insufficient_quota"}, "Check API billing"),
+            ({}, "unknown_429"),
+        ]:
+            with self.subTest(error=error):
+                response = Mock(ok=False, status_code=429, headers={"Retry-After": "20"})
+                response.json.return_value = {"error": error}
+                with patch.dict(p.os.environ, {"OPENAI_API_KEY": "test"}), patch.object(
+                    p.requests, "post", return_value=response
+                ) as post:
+                    with self.assertRaisesRegex(RuntimeError, expected):
+                        p.api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/responses", {}, retries=0)
+                    self.assertEqual(post.call_count, 1)
+
+    def test_timeout_is_clear_and_not_retried(self):
+        with patch.dict(p.os.environ, {"OPENAI_API_KEY": "test"}), patch.object(
+            p.requests, "post", side_effect=p.requests.ReadTimeout
+        ) as post:
+            with self.assertRaisesRegex(RuntimeError, "OpenAI writing/planning timed out"):
+                p.api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/responses", {})
+            self.assertEqual(post.call_count, 1)
+            self.assertEqual(post.call_args.kwargs["timeout"], (15, 120))
+
+    def test_rate_limit_retries_then_succeeds(self):
+        success = Mock()
+        with patch.object(p, "_api_post_once", side_effect=[p.TemporaryRateLimit("limited", "45"), success]) as request, patch.object(
+            p.time, "sleep"
+        ) as sleep, patch.object(p.random, "uniform", return_value=0):
+            self.assertIs(p.api_post("base", "key", "endpoint", {}), success)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(sum(c.args[0] for c in sleep.call_args_list), 45)
+
+    def test_rate_limit_retries_are_bounded(self):
+        with patch.object(p, "_api_post_once", side_effect=p.TemporaryRateLimit("limited", "")) as request, patch.object(p.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "Retry limit reached"):
+                p.api_post("base", "key", "endpoint", {})
+            self.assertEqual(request.call_count, 4)
+
+    def test_long_cooldown_does_not_retry_early(self):
+        with patch.object(p, "_api_post_once", side_effect=p.TemporaryRateLimit("limited", "3600")) as request, patch.object(p.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "long wait"):
+                p.api_post("base", "key", "endpoint", {})
+            request.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_cancel_exits_without_traceback(self):
+        with patch.object(p.sys, "argv", ["pipeline.py", "render", "--out", "unused"]), patch.object(
+            p.Path, "read_text", side_effect=KeyboardInterrupt
+        ), patch("sys.stderr") as stderr:
+            with self.assertRaises(SystemExit) as result:
+                p.main()
+            self.assertEqual(result.exception.code, 130)
+            self.assertIn("Cancelled", "".join(c.args[0] for c in stderr.write.call_args_list))
+
+    def test_source_narration_is_attached_locally(self):
+        response = Mock()
+        response.json.return_value = {"status": "completed", "output": [
+            {"content": [{"type": "output_text", "text": json.dumps(board())}]}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post", return_value=response):
+            output = Path(tmp) / "storyboard.json"
+            result = p.plan("A completely different script.", output, 2, "Watercolor", "9:16")
+            self.assertEqual(" ".join(s["narration"] for s in result["scenes"]), "A completely different script.")
+            self.assertTrue(all(s["narration"].strip() for s in result["scenes"]))
+            self.assertTrue(output.exists())
+
+    def test_bad_scene_ids(self):
+        value = board()
+        value["scenes"][1]["id"] = 1
+        with self.assertRaises(ValueError):
+            p.validate_board(value)
+
+    def test_caption_scene_offsets(self):
+        result = p.captions([{"narration": "One two three four five six seven",
+                              "start": 2, "audio_duration": 7}])
+        self.assertIn("00:00:02,000 --> 00:00:08,000", result)
+        self.assertIn("00:00:08,000 --> 00:00:09,000", result)
+        self.assertEqual(p.timestamp(59.9999), "00:01:00,000")
+
+    def test_resume_and_invalidate_only_changed_asset(self):
+        audio, image = Mock(), Mock()
+        audio.content = b"test audio"
+        audio.headers = {"Content-Type": "audio/mpeg"}
+        image.json.return_value = {"data": [{"b64_json": "aW1hZ2U="}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post", side_effect=[audio, image, audio, image, image]) as api:
+            value = board()
+            p.generate_assets(value, Path(tmp), "voice")
+            self.assertEqual(api.call_count, 4)
+            p.generate_assets(value, Path(tmp), "voice")
+            self.assertEqual(api.call_count, 4)
+            value["scenes"][0]["prompt"] = "Changed visual"
+            p.generate_assets(value, Path(tmp), "voice")
+            self.assertEqual(api.call_count, 5)
+
+    def test_real_render(self):
+        # Real FFmpeg smoke test: two scenes, zoom/fade/cut, music, burned and soft captions.
+        with tempfile.TemporaryDirectory(prefix="video test '") as tmp:
+            root = Path(tmp)
+            assets = root / "assets"
+            assets.mkdir()
+            for i in (1, 2):
+                p.run_ffmpeg(["-f", "lavfi", "-i", f"color=c={'blue' if i == 1 else 'green'}:s=180x320",
+                              "-frames:v", "1", str(assets / f"scene-{i:03}.png")])
+                p.run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=0.73",
+                              str(assets / f"scene-{i:03}.{'mp3' if i == 1 else 'wav'}")])
+            music = assets / "scene-001.mp3"
+            for mode in ("burn", "soft", "none"):
+                p.render(board(), root, height=320, fps=15, subtitle_mode=mode, music=music)
+                self.assertTrue((root / "video.mp4").is_file())
+                timeline = json.loads((root / "timeline.json").read_text())
+                self.assertAlmostEqual(p.duration(root / "video.mp4"), timeline["duration"], delta=0.12)
+                self.assertEqual(timeline["scenes"][1]["start"], timeline["scenes"][0]["end"])
+
+
+if __name__ == "__main__":
+    unittest.main()
