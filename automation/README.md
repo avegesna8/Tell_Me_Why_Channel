@@ -196,3 +196,15 @@ even if approval inputs are provided. Choose real publishing times and disable
 review-only when approving an emailed package after production is configured.
 For Shorts under 45 seconds, audio is fitted to the requested target within the
 same 0.8–1.25 speed limits; final duration must be within one second of the target.
+
+## Current voice and creative direction
+
+The local reference is `voices/Liam_Final-reference.wav`, converted from the first
+15 seconds of `voices/Liam_Final.mp3` to 24 kHz mono PCM WAV. `.env` points to this
+reference. For GitHub production, replace `config/reference.wav` in the private
+bucket with this WAV (keeping that cloud object name). Voice files stay out of Git.
+
+New scripts open with a specific curiosity hook and close with a memorable payoff
+that connects to the opening. New thumbnails emphasize one striking, truthful
+visual idea, strong contrast, mobile readability and optional 2–4-word hook text.
+Existing review packages are preserved; these changes do not regenerate them.
