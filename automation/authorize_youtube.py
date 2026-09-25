@@ -15,10 +15,11 @@ def main():
         raise ValueError('Output already exists; choose a new private path.')
     flow = InstalledAppFlow.from_client_secrets_file(str(args.client_secrets),
         scopes=['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.force-ssl'])
-    credentials = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+    credentials = flow.run_local_server(port=0, access_type='offline', prompt='consent',
+        success_message='Google authorization received. Return to the assistant to confirm credentials were saved.')
     if not credentials.refresh_token:
         raise RuntimeError('Google did not return a refresh token.')
-    with args.out.open('x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
+    with open(args.out, 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
         json.dump({'YOUTUBE_CLIENT_ID': credentials.client_id, 'YOUTUBE_CLIENT_SECRET': credentials.client_secret,
                    'YOUTUBE_REFRESH_TOKEN': credentials.refresh_token}, output, indent=2)
     print('Credentials saved locally. Add the three values to GitHub Secrets; never commit this file.')
