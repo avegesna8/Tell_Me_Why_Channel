@@ -29,7 +29,7 @@ class RunPodTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         ref = self.root / "ref.wav"
         ref.write_bytes(wav_bytes())
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test"}):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test", "RUNPOD_MODEL_VERSION": "2"}):
             self.client = RunPodTTS("https://api.runpod.ai/v2/endpoint-1/runsync", ref, poll_seconds=0)
         self.state = self.root / "job.json"
         self.completed = {"id": "job-1", "status": "COMPLETED", "output": {

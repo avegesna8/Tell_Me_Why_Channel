@@ -1,6 +1,7 @@
 # Queue → long video + Short → thumbnail/metadata → email → scheduled uploads
 
-Implemented locally; no workflow, upload, email or generation has been executed.
+Production requires cloud storage, provider credentials, SMTP and YouTube OAuth setup.
+Keep ENABLE_VIDEO_AUTOMATION disabled until configuration is complete.
 This pipeline uses its own private Tell_Me_Why_Channel GitHub repository,
 separate from the RunPod voice-worker repository.
 Never include `.env`, OAuth files, `.venv`, or `runs` in the repository.
@@ -57,35 +58,52 @@ have become stale while waiting for review, update them and run production again
 Once any upload/scheduling starts, do not change metadata or times without
 reconciling the saved state and YouTube Studio.
 
-## Persistent runner
+## GitHub-hosted runner and private cloud storage
 
-The workflow deliberately uses a **self-hosted Linux runner** with labels
-`self-hosted`, `linux`, `video-production`. A local GPU is not required: OpenAI
-and RunPod generate assets; CPU Whisper/FFmpeg align and render them. Install
-FFmpeg with libass, FFprobe, Python 3.11 support, and sufficient disk for videos
-and Whisper models. Use a dedicated runner for this trusted private repository.
+Production runs on `ubuntu-latest`; no server is required. Workload Identity
+Federation authenticates GitHub to the private GCS bucket without a service-account
+key. The service account needs Storage Object Admin on that bucket only.
 
-Set VIDEO_WORK_ROOT to a persistent absolute path outside the checkout, e.g.
-`/srv/youtube-production`. The runner user needs write access. Back this directory
-up securely: it holds assets, job IDs, upload session URLs and queue state. Never
-publish it as an artifact. Do not wipe it between runs. A disposable hosted runner
-is NOT supported by this workflow without adding durable remote state/storage.
-Concurrency plus a filesystem lock prevents two runs processing the same queue
-on that runner. Keep this workflow on a single persistent runner/storage volume.
+Upload the clean reference WAV as `config/reference.wav` in the bucket. The workflow
+downloads it outside the checkout. Commit `characters/updated_base.png` to GitHub.
+Run **Check cloud storage connection** manually before enabling production; this
+only creates, reads and deletes a small probe object. It makes no AI, email or
+YouTube calls.
 
-Place your clean WAV reference on that machine; RUNPOD_REFERENCE_AUDIO must use
-its Linux path, not the Mac Desktop path. Commit characters/updated_base.png.
-The source voice is read locally by the runner and sent only to RunPod.
+`pipeline/state.json` and `pipeline/projects/` retain queue state and assets between
+runs. Pipeline atomic writes and RunPod job records checkpoint synchronously to
+GCS; assets are synced before a queue transition, email or upload can proceed.
+A failed checkpoint stops processing. Interrupted image/API responses may still
+incur charges without a saved result; they cannot provide exactly-once generation.
+Render intermediates are rebuilt when needed. Do not publish state as artifacts:
+it can contain private resumable-upload URLs.
+
+GitHub concurrency and a GCS create-only lock prevent competing production runs.
+If the runner is forcibly terminated, `locks/queue.json` may remain. Check the
+recorded GitHub run is no longer running, reconcile any ambiguous RunPod/email/
+YouTube operation, then delete only that lock object to permit a retry. Never
+remove a lock while its run is active. Normal errors release the lock.
+
+On each production run, project media (including older revisions) is deleted once
+an item has been completed for seven days and both YouTube schedules are saved.
+Awaiting-review and failed items are retained. Small state records and YouTube IDs
+remain. Cleanup runs only while automation is enabled and runs successfully far
+enough to acquire storage. Bucket soft-delete/versioning policies can retain deleted
+bytes longer. Do not add a bucket-wide age lifecycle rule: it could delete pending
+reviews, the reference voice or durable state. GitHub review artifacts independently
+expire after 14 days.
 
 ## GitHub settings
 
 Repository Variables:
 
 - ENABLE_VIDEO_AUTOMATION: `true` only after setup; unset disables all jobs.
-- VIDEO_WORK_ROOT: persistent absolute directory, outside the checkout.
+- GCP_WORKLOAD_IDENTITY_PROVIDER: full provider resource name.
+- GCP_SERVICE_ACCOUNT: service-account email.
+- GCS_BUCKET: private bucket name (without `gs://`).
 - RUNPOD_ENDPOINT_ID: tested voice endpoint.
 - RUNPOD_MODEL_VERSION: `2` or `2.5` matching the tested worker. IndexTTS-2.5 passed a short synthesis test; set this to `2.5` for the upgraded endpoint.
-- RUNPOD_REFERENCE_AUDIO: absolute reference-WAV path on the runner.
+- Reference voice: stored at `gs://BUCKET/config/reference.wav`; the workflow sets its local path.
 - SMTP_HOST: your authenticated SMTP provider; SMTP_PORT currently 587/STARTTLS.
 - SMTP_FROM: permitted sender address.
 - SUMMARY_EMAIL_TO: optional override; queue defaults to abhinn.varma@gmail.com.
@@ -138,7 +156,7 @@ saved time; inspect both in Studio if an error is not resolved before publicatio
 Retry by manually dispatching the workflow. It resumes the first unfinished
 item. State is at VIDEO_WORK_ROOT/state.json; generated files are under
 VIDEO_WORK_ROOT/projects/ITEM_ID. Review artifacts are retained for 14 days;
-the persistent originals remain on disk. There is no automatic deletion policy.
+cloud originals remain until completed-item cleanup described above.
 
 Validate without external calls:
 

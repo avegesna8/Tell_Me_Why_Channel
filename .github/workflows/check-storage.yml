@@ -1,0 +1,29 @@
+name: Check cloud storage connection
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: tell-me-why-channel
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Check private bucket read and write access
+        env:
+          GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          set -euo pipefail
+          probe="gs://$GCS_BUCKET/checks/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          printf 'connection-check' > "$RUNNER_TEMP/storage-probe.txt"
+          gcloud storage cp "$RUNNER_TEMP/storage-probe.txt" "$probe"
+          gcloud storage cp "$probe" "$RUNNER_TEMP/storage-readback.txt"
+          cmp "$RUNNER_TEMP/storage-probe.txt" "$RUNNER_TEMP/storage-readback.txt"
+          gcloud storage rm "$probe"

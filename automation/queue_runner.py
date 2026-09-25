@@ -1,5 +1,6 @@
-"""Process one FIFO item on a persistent Linux/macOS runner. Run as a module."""
+"""Process one FIFO item with local or cloud-backed progress. Run as a module."""
 import argparse
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from email.message import EmailMessage
 import fcntl
@@ -221,13 +222,20 @@ def main():
         os.environ['SUMMARY_EMAIL_TO'] = queue.get('notification_email', '')
     root = args.work_root.resolve(); root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
-    with (root/'queue.lock').open('w') as lock:
+    with ExitStack() as stack:
+        cloud = None
+        if os.getenv('VIDEO_CLOUD_CHECKPOINTS'):
+            from automation.cloud_storage import CloudSession
+            cloud = stack.enter_context(CloudSession())
+        lock = stack.enter_context((root/'queue.lock').open('w'))
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         path = root/'state.json'
         states = json.loads(path.read_text()) if path.exists() else {}
         def save():
             p.save_json(path, states)
             os.chmod(path, 0o600)
+        if cloud:
+            cloud.cleanup(states, save)
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return

@@ -65,6 +65,8 @@ def atomic_write(path, data):
     temp = path.with_name(path.name + ".tmp")
     temp.write_bytes(data)
     temp.replace(path)
+    from automation.cloud_storage import checkpoint
+    checkpoint(path)
 
 
 def fingerprint(value):

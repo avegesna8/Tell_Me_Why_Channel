@@ -24,22 +24,27 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+  id-token: write
 jobs:
   produce:
     if: vars.ENABLE_VIDEO_AUTOMATION == 'true'
-    # Stable disk retains RunPod job IDs, resumable uploads and rendered assets.
-    runs-on: [self-hosted, linux, video-production]
+    runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVE_ITEM_ID: ${{ inputs.approve_id }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
-      VIDEO_WORK_ROOT: ${{ vars.VIDEO_WORK_ROOT }}
+      VIDEO_WORK_ROOT: ${{ runner.temp }}/video-work
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      VIDEO_CLOUD_CHECKPOINTS: '1'
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_ENDPOINT_ID: ${{ vars.RUNPOD_ENDPOINT_ID }}
-      RUNPOD_MODEL_VERSION: ${{ vars.RUNPOD_MODEL_VERSION || '2' }}
-      RUNPOD_REFERENCE_AUDIO: ${{ vars.RUNPOD_REFERENCE_AUDIO }}
+      RUNPOD_MODEL_VERSION: ${{ vars.RUNPOD_MODEL_VERSION || '2.5' }}
+      RUNPOD_REFERENCE_AUDIO: ${{ runner.temp }}/reference.wav
+      RUNPOD_DURATION_FACTOR: '1.11'
+      RUNPOD_EMOTION: Curious and conversational, with subtle excitement
+      RUNPOD_EMOTION_STRENGTH: '0.5'
       IMAGE_REFERENCE: characters/updated_base.png
       SMTP_HOST: ${{ vars.SMTP_HOST }}
       SMTP_PORT: '587'
@@ -52,12 +57,17 @@ jobs:
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Verify persistent storage settings
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: tell-me-why-channel
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Install video tools and fetch voice reference
         run: |
-          test -n "$VIDEO_WORK_ROOT"
-          test -f "$RUNPOD_REFERENCE_AUDIO"
-          command -v ffmpeg
-          command -v ffprobe
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          gcloud storage cp "gs://$GCS_BUCKET/config/reference.wav" "$RUNPOD_REFERENCE_AUDIO"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

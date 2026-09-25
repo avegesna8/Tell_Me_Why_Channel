@@ -17,6 +17,8 @@ def save(path, value):
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(value, indent=2) + "\n")
     temp.replace(path)
+    from automation.cloud_storage import checkpoint
+    checkpoint(path)
 
 
 class RunPodTTS:
