@@ -7,8 +7,8 @@ import pipeline as p
 
 
 def short_script(source, directory, seconds):
-    if not 45 <= seconds <= 60:
-        raise ValueError('Short target must be 45–60 seconds.')
+    if not 30 <= seconds <= 60:
+        raise ValueError('Short target must be 30–60 seconds.')
     narration = ' '.join(scene['narration'] for scene in source['scenes'])
     request = {'source_title': source['title'], 'source_narration': narration,
                'target_seconds': seconds, 'version': 1}
@@ -58,9 +58,12 @@ def fit_speed(audio_seconds, target):
     if not math.isfinite(audio_seconds) or audio_seconds <= 0:
         raise ValueError('Short narration has invalid duration.')
     # Leave a small margin for frame rounding and AAC padding at the upper bound.
-    speed = 1.0 if 45 <= audio_seconds <= 59.5 else audio_seconds / min(target, 59)
+    if not 30 <= target <= 60:
+        raise ValueError('Short target must be 30–60 seconds.')
+    speed = (audio_seconds / target if target < 45 else
+             1.0 if 45 <= audio_seconds <= 59.5 else audio_seconds / min(target, 59))
     if not 0.8 <= speed <= 1.25:
-        raise ValueError(f'Short narration is {audio_seconds:.1f}s; edit short/script.txt to fit 45–60s '
+        raise ValueError(f'Short narration is {audio_seconds:.1f}s; edit short/script.txt to fit the {target}s target '
                          'and remove short/storyboard.json before rerunning. Audio has not been truncated.')
     return speed
 
@@ -89,5 +92,6 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
     actual = p.duration(directory / 'video.mp4')
     p.save_json(directory / 'short-timing.json', {'target_seconds': seconds, 'raw_audio_seconds': raw_duration,
                                                'narration_speed': speed, 'video_seconds': actual})
-    if not 45 <= actual <= 60:
-        raise RuntimeError(f'Rendered Short is {actual:.2f}s, outside 45–60s. Review short-timing.json before using it.')
+    lower, upper = (seconds - 1, seconds + 1) if seconds < 45 else (45, 60)
+    if not lower <= actual <= upper:
+        raise RuntimeError(f'Rendered Short is {actual:.2f}s, outside {lower}–{upper}s. Review short-timing.json before using it.')

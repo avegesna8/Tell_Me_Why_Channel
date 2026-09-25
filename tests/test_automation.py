@@ -148,3 +148,21 @@ class AutomationTests(unittest.TestCase):
                           {'status': 'publishing', 'review_digest': 'old', 'uploads': {'long': {'id': 'uploaded'}}}]:
                 with self.assertRaises(ValueError):
                     apply_regeneration(item(), state, Mock())
+
+    def test_queue_accepts_thirty_second_short_and_rejects_invalid_targets(self):
+        validate_queue({'email_mode':'review', 'items':[{**item(), 'short_seconds':30}]})
+        for seconds in (29, 61, 30.5, True):
+            with self.assertRaises(ValueError):
+                validate_queue({'email_mode':'review', 'items':[{**item(), 'short_seconds':seconds}]})
+
+    def test_review_only_blocks_youtube_even_with_matching_approval(self):
+        from automation import queue_runner as q
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            states = {item()['id']:{'status':'ready','review_digest':'digest','email_review':'sent'}}
+            with patch.dict('os.environ', {'REVIEW_ONLY':'1', 'APPROVE_ITEM_ID':item()['id'], 'APPROVAL_CODE':'digest'}), \
+                 patch.object(q, 'review_digest', return_value='digest'), \
+                 patch.object(q, 'email_summary'), patch.object(q, 'YouTube') as youtube:
+                process(item(), {'email_mode':'confirmation'}, root, states, Mock())
+            youtube.assert_not_called()
+            self.assertEqual(states[item()['id']]['status'], 'awaiting_approval')

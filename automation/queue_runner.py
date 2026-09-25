@@ -34,6 +34,8 @@ def validate_queue(value):
             raise ValueError('Each queued item needs an idea.')
         if not .25 <= item.get('minutes', 3) <= 30:
             raise ValueError('minutes must be 0.25–30.')
+        if type(item.get('short_seconds', 55)) is not int or not 30 <= item.get('short_seconds', 55) <= 60:
+            raise ValueError('short_seconds must be an integer between 30 and 60.')
         for key in ('made_for_kids', 'contains_synthetic_media'):
             if not isinstance(item.get(key), bool):
                 raise ValueError(f'Explicit {key} true/false is required.')
@@ -141,6 +143,8 @@ def apply_regeneration(item, state, save):
 def process(item, queue, root, states, save):
     state = states.setdefault(item['id'], {})
     signature = p.fingerprint({k: item.get(k) for k in ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
+    if 'short_seconds' in item:
+        signature = p.fingerprint({'base': signature, 'short_seconds': item['short_seconds']})
     if state.get('signature') and state['signature'] != signature:
         raise ValueError('Queued idea/settings changed after processing started. Create a new item ID.')
     state['signature'] = signature; save()
@@ -155,11 +159,12 @@ def process(item, queue, root, states, save):
     if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'scheduled', 'done'):
         state['status'] = 'generating'; save()
         subprocess.run([sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
-                        '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short'], check=True)
+                        '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
+                        '--short-seconds', str(item.get('short_seconds', 55))], check=True)
         metadata(project)
         thumbnail(project, json.loads((project/'metadata.json').read_text())['long'])
         state['status'] = 'ready'; save()
-    if queue['email_mode'] == 'review' or state.get('revision', 1) > 1:
+    if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
         if state.get('review_digest') != digest:
             if state.get('uploads'):
@@ -169,6 +174,10 @@ def process(item, queue, root, states, save):
             state['review_digest'] = digest
             state.pop('approved_digest', None); state.pop('email_review', None); save()
         email_summary(item, project, state, save, 'review')
+        if os.getenv('REVIEW_ONLY') == '1':
+            state['status'] = 'awaiting_approval'; save()
+            print('Review-only run complete. YouTube uploads and scheduling are disabled for this run.')
+            return
         approval_id = os.getenv('APPROVE_ITEM_ID', '')
         approval_code = os.getenv('APPROVAL_CODE', '')
         if (approval_id or approval_code) and os.getenv('REVIEW_ACTION', 'approve') == 'approve':

@@ -186,3 +186,13 @@ another one. A stale code cannot regenerate a newer version. Regeneration is
 allowed before YouTube uploads begin; it does not delete, unschedule, or replace
 videos already on YouTube. Email replies still are not monitored; use the linked
 GitHub workflow form. Keep publishing dates in the future before approving.
+
+## Small manual review tests
+
+Queue items may set `short_seconds` from 30 to 60 (default 55). Main duration uses
+`minutes`. The manual workflow defaults to `review_only: true`: it can run while
+scheduled production is disabled and cannot upload or schedule YouTube videos,
+even if approval inputs are provided. Choose real publishing times and disable
+review-only when approving an emailed package after production is configured.
+For Shorts under 45 seconds, audio is fitted to the requested target within the
+same 0.8–1.25 speed limits; final duration must be within one second of the target.

@@ -53,3 +53,10 @@ class ShortsTests(unittest.TestCase):
             self.assertAlmostEqual(render.call_args.kwargs['narration_speed'], 65/55)
             self.assertFalse((root / 'storyboard.json').exists())
             self.assertTrue((short / 'short-timing.json').exists())
+
+    def test_thirty_second_target_adjusts_audio_without_truncation(self):
+        self.assertAlmostEqual(s.fit_speed(33, 30), 1.1)
+        self.assertAlmostEqual(s.fit_speed(27, 30), .9)
+        for length in [20, 45]:
+            with self.assertRaises(ValueError):
+                s.fit_speed(length, 30)

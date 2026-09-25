@@ -735,7 +735,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["plan", "assets", "render", "run", "short"])
     parser.add_argument("--with-short", action="store_true", help="Create a separate vertical Short after the main run")
-    parser.add_argument("--short-seconds", type=int, default=55, help="Short target duration, 45–60 seconds")
+    parser.add_argument("--short-seconds", type=int, default=55, help="Short target duration, 30–60 seconds")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--script", type=Path)
     source.add_argument("--idea", help="Video idea: write an original script before planning")
@@ -761,8 +761,8 @@ def main():
     args = parser.parse_args()
     try:
         runpod = None
-        if not 45 <= args.short_seconds <= 60:
-            raise ValueError("--short-seconds must be between 45 and 60.")
+        if not 30 <= args.short_seconds <= 60:
+            raise ValueError("--short-seconds must be between 30 and 60.")
         if args.with_short and args.command != "run":
             raise ValueError("--with-short requires run; use short for an existing project.")
         if args.scenes is not None and not 1 <= args.scenes <= 100:
