@@ -130,8 +130,11 @@ class SoundtrackTests(unittest.TestCase):
                    for kind in ('long','short')}
             response=Mock();response.json.return_value={'status':'completed','output':[{'content':[
                 {'type':'output_text','text':json.dumps(value)}]}]}
-            with patch.object(p,'api_post',return_value=response):
+            with patch.object(p,'api_post',return_value=response) as api:
                 metadata(root);metadata(root)
+            instructions=api.call_args.args[3]['instructions']
+            self.assertIn('simple, natural, thought-provoking questions',instructions)
+            self.assertIn('Why Do Airplanes Leave White Trails in the Sky?',instructions)
             saved=json.loads((root/'metadata.json').read_text())
             self.assertEqual(saved['long']['description'].count('Music by Example, CC BY'),1)
 
