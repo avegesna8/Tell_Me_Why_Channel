@@ -104,7 +104,8 @@ def email_summary(item, project, state, save, kind):
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
                  project/'script-quality.json', project/'speech-text.txt', project/'speech-preparation.json',
-                 project/'production-review.json', project/'short/production-review.json']:
+                 project/'production-review.json', project/'short/production-review.json',
+                 project/'narration-quality.json', project/'short/narration-quality.json']:
         if not file.exists():
             continue
         mime = ('image', 'jpeg') if file.suffix == '.jpg' else ('application', 'json') if file.suffix == '.json' else ('text', 'plain')

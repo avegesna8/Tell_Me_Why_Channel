@@ -57,7 +57,8 @@ class ImageSafetyFallbackTests(unittest.TestCase):
         runpod.synthesize.return_value = wav_bytes()
         image = Mock(); image.json.return_value = {'data': [{'b64_json': 'aW1hZ2U='}]}
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-                p, 'api_post', side_effect=[RuntimeError('request rejected by the safety system'), image]) as api:
+                p, 'api_post', side_effect=[RuntimeError('request rejected by the safety system'), image]) as api, \
+                patch.object(p, 'check_runpod_narration'):
             p.generate_assets(value, Path(tmp)/'assets', '', runpod=runpod, narration_mode='continuous')
             self.assertEqual(api.call_count, 2)
             self.assertEqual(api.call_args.args[2], '/images/generations')

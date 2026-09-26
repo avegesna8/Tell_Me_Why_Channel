@@ -464,6 +464,40 @@ def asset_payloads(board, scene, voice, *, require_voice=True):
     return speech, image
 
 
+def check_runpod_narration(path, text, directory, runpod, signature):
+    """Validate one continuous track locally and allow one resumable retry."""
+    from narration_quality import cached_report, inspect
+    model = os.getenv("WHISPER_MODEL", "small")
+    report_path = directory.parent / "narration-quality.json"
+    report = cached_report(report_path, path, text, model)
+    if report is not None and report.get("passed"):
+        print(f"Reusing passed narration quality check ({report['matched_fraction']:.0%} transcript match).", flush=True)
+        return
+    if report is None:
+        print("Checking narration locally before generating images…", flush=True)
+        report = inspect(path, text, model)
+        report.update(attempt=1, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
+        words = report.pop("words")
+        save_json(directory.parent / "transcript.json", {
+            "audio_sha256": report["audio_sha256"], "model": model, "words": words})
+        save_json(report_path, report)
+    if not report["passed"]:
+        retry_path = directory / "narration.runpod-retry-job.json"
+        retry_signature = fingerprint({"base": signature, "quality_retry": 1})
+        print("Narration quality check failed; requesting one fresh RunPod attempt…", flush=True)
+        atomic_write(path, runpod.synthesize(text, retry_path, retry_signature))
+        report = inspect(path, text, model)
+        report.update(attempt=2, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
+        words = report.pop("words")
+        save_json(directory.parent / "transcript.json", {
+            "audio_sha256": report["audio_sha256"], "model": model, "words": words})
+        save_json(report_path, report)
+    if not report["passed"]:
+        raise RuntimeError("Narration failed local quality checks after one retry. "
+                           "Review narration-quality.json and transcript.json; images were not generated.")
+    print(f"Narration quality passed ({report['matched_fraction']:.0%} transcript match).", flush=True)
+
+
 def generate_assets(board, directory, voice, *, runpod=None, narration_mode="scenes", image_reference=None):
     directory.mkdir(parents=True, exist_ok=True)
     reference_bytes = None
@@ -514,6 +548,8 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             signature = fingerprint(signature_data)
             if path.exists() and path.stat().st_size and stamp.exists() and json.loads(stamp.read_text()).get("signature") == signature:
                 print(f"Reusing {path.name}", flush=True)
+                if kind == "audio" and runpod and narration_mode == "continuous":
+                    check_runpod_narration(path, tts_text, directory, runpod, signature)
                 continue
             print(f"Generating {kind} for {stem}…", flush=True)
             if kind == "audio":
@@ -543,6 +579,8 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             if not data:
                 raise RuntimeError(f"Provider returned empty {kind}.")
             atomic_write(path, data)
+            if kind == "audio" and runpod and narration_mode == "continuous":
+                check_runpod_narration(path, tts_text, directory, runpod, signature)
             save_json(stamp, {"signature": signature, "file": path.name})
 
 
@@ -683,8 +721,15 @@ def continuous_alignment(board, audio, directory):
         if cached.get("signature") == signature:
             print("Reusing narration alignment", flush=True)
             return cached
-    words = transcribe(audio, model)
-    save_json(directory / "transcript.json", {"words": words})
+    transcript_path = directory / "transcript.json"
+    audio_sha = hashlib.sha256(audio.read_bytes()).hexdigest()
+    transcript = json.loads(transcript_path.read_text()) if transcript_path.exists() else {}
+    if transcript.get("audio_sha256") == audio_sha and transcript.get("model") == model:
+        print("Reusing narration quality transcript", flush=True)
+        words = transcript.get("words", [])
+    else:
+        words = transcribe(audio, model)
+        save_json(transcript_path, {"audio_sha256": audio_sha, "model": model, "words": words})
     result = align_words(board["scenes"], words, duration(audio))
     result["signature"] = signature
     save_json(path, result)

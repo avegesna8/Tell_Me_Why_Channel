@@ -90,7 +90,7 @@ class RunPodTests(unittest.TestCase):
         image.json.return_value = {"data": [{"b64_json": "aW1hZ2U="}]}
         with patch.object(self.client, "request", return_value=self.completed) as request, patch.object(
             pipeline, "api_post", return_value=image
-        ) as api:
+        ) as api, patch.object(pipeline, "check_runpod_narration"):
             pipeline.generate_assets(board, self.root, "", runpod=self.client)
             pipeline.generate_assets(board, self.root, "", runpod=self.client)
             self.assertEqual(request.call_count, 1)
