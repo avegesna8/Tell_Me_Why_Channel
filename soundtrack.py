@@ -94,40 +94,57 @@ def add_reserved_intro(plan, entries, seconds):
 
 def resolve_plan(plan, entries, words, seconds):
     by_id = {e['id']: e for e in entries}
-    if plan.get('music_id') is not None and (plan['music_id'] not in by_id or by_id[plan['music_id']]['kind'] != 'music'):
-        raise ValueError('Soundtrack planner selected an unknown music track.')
-    cues = []
+    skipped = []
+    music_id = plan.get('music_id')
+    if music_id is not None and (music_id not in by_id or by_id[music_id]['kind'] != 'music'):
+        skipped.append({'effect_id': music_id, 'reason': 'unknown or non-music selection'})
+        music_id = None
     maximum = min(40, max(1, math.floor(seconds / 20)))
     effects = plan.get('effects')
-    if not isinstance(effects, list) or len(effects) > maximum:
-        raise ValueError('Too many effects for this video duration.')
+    if not isinstance(effects, list):
+        skipped.append({'effect_id': None, 'reason': 'effects was not a list'})
+        effects = []
+    if len(effects) > maximum:
+        skipped.extend({'effect_id': effect.get('effect_id') if isinstance(effect, dict) else None,
+                        'reason': 'exceeds effect limit'} for effect in effects[maximum:])
+        effects = effects[:maximum]
+    cues = []
     narration = ' '.join(w['word'] for w in words).lower()
     for effect in effects:
+        if not isinstance(effect, dict):
+            skipped.append({'effect_id': None, 'reason': 'malformed effect'}); continue
         entry = by_id.get(effect.get('effect_id'))
         index = effect.get('word_index')
-        if not entry or entry['kind'] != 'sfx' or type(index) is not int or not 0 <= index < len(words):
-            raise ValueError('Invalid sound-effect ID or word position.')
-        if ('siren' in (entry['id']+' '+entry.get('file','')).lower()) and not any(term in narration for term in ('alarm', 'emergency', 'siren', 'warning')):
-            raise ValueError('Siren requires an alarm/emergency context in the narration.')
+        if not entry or entry['kind'] != 'sfx':
+            skipped.append({'effect_id': effect.get('effect_id'), 'reason': 'unknown sound effect'}); continue
+        if type(index) is not int or not 0 <= index < len(words):
+            skipped.append({'effect_id': entry['id'], 'reason': 'word position outside narration'}); continue
+        if ('siren' in (entry['id']+' '+entry.get('file','')).lower()) and not any(
+                term in narration for term in ('alarm', 'emergency', 'siren', 'warning')):
+            skipped.append({'effect_id': entry['id'], 'reason': 'siren has no alarm or emergency context'}); continue
         start = float(words[index]['start'])
         if not math.isfinite(start) or not 0 <= start < seconds:
-            raise ValueError('Effect timestamp falls outside the video.')
+            skipped.append({'effect_id': entry['id'], 'reason': 'timestamp outside video'}); continue
         length = min(float(entry.get('clip_seconds', 1)), seconds - start)
         source_start = float(entry.get('start_seconds', 0))
         if not math.isfinite(length) or length <= 0 or not math.isfinite(source_start) or source_start < 0:
-            raise ValueError('Invalid sound-effect excerpt.')
+            skipped.append({'effect_id': entry['id'], 'reason': 'invalid audio excerpt'}); continue
         cues.append({'effect_id':entry['id'], 'word_index':index, 'word':words[index]['word'],
                      'at_seconds':start, 'clip_seconds':length, 'source_start':source_start})
     cues.sort(key=lambda c:c['at_seconds'])
     sparse = []
     for cue in cues:
         if sparse and cue['at_seconds'] - sparse[-1]['at_seconds'] < 12:
-            continue  # Effects are optional; discard dense decoration instead of failing production.
+            skipped.append({'effect_id': cue['effect_id'], 'reason': 'less than twelve seconds after previous effect'})
+            continue
         sparse.append(cue)
     cues = sparse
-    selected = ([by_id[plan['music_id']]] if plan.get('music_id') else []) + [by_id[c['effect_id']] for c in cues]
+    selected = ([by_id[music_id]] if music_id else []) + [by_id[c['effect_id']] for c in cues]
     credits = list(dict.fromkeys(e['attribution_text'] for e in selected if e['attribution_required']))
-    return {'music_id':plan['music_id'], 'effects':cues, 'credits':credits}
+    result = {'music_id':music_id, 'effects':cues, 'credits':credits}
+    if skipped:
+        result['skipped_effects'] = skipped
+    return result
 
 
 def make_plan(project, entries):

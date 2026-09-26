@@ -35,10 +35,13 @@ class SoundtrackTests(unittest.TestCase):
         for effects in ([{'effect_id':'unknown','word_index':0}],
                         [{'effect_id':'pop','word_index':90}],
                         [{'effect_id':'siren','word_index':0}]):
-            with self.assertRaises(ValueError): s.resolve_plan({**plan,'effects':effects},entries,words,60)
+            corrected = s.resolve_plan({**plan,'effects':effects},entries,words,60)
+            self.assertEqual(corrected['effects'], [])
+            self.assertTrue(corrected['skipped_effects'])
         dense = s.resolve_plan({**plan, 'effects': [{'effect_id':'pop','word_index':i} for i in (0,1)]}, entries, words, 60)
         self.assertEqual(len(dense['effects']), 1)
         self.assertEqual(dense['effects'][0]['word_index'], 0)
+        self.assertIn('twelve seconds', dense['skipped_effects'][0]['reason'])
 
     def test_cached_plan_makes_no_new_api_call(self):
         with tempfile.TemporaryDirectory() as tmp:
