@@ -119,8 +119,12 @@ def resolve_plan(plan, entries, words, seconds):
         cues.append({'effect_id':entry['id'], 'word_index':index, 'word':words[index]['word'],
                      'at_seconds':start, 'clip_seconds':length, 'source_start':source_start})
     cues.sort(key=lambda c:c['at_seconds'])
-    if any(b['at_seconds'] - a['at_seconds'] < 12 for a,b in zip(cues,cues[1:])):
-        raise ValueError('Sound effects must be at least twelve seconds apart.')
+    sparse = []
+    for cue in cues:
+        if sparse and cue['at_seconds'] - sparse[-1]['at_seconds'] < 12:
+            continue  # Effects are optional; discard dense decoration instead of failing production.
+        sparse.append(cue)
+    cues = sparse
     selected = ([by_id[plan['music_id']]] if plan.get('music_id') else []) + [by_id[c['effect_id']] for c in cues]
     credits = list(dict.fromkeys(e['attribution_text'] for e in selected if e['attribution_required']))
     return {'music_id':plan['music_id'], 'effects':cues, 'credits':credits}
