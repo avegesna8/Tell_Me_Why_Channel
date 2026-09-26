@@ -120,7 +120,9 @@ class PipelineTests(unittest.TestCase):
         audio.content = b"test audio"
         audio.headers = {"Content-Type": "audio/mpeg"}
         image.json.return_value = {"data": [{"b64_json": "aW1hZ2U="}]}
-        with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post", side_effect=[audio, image, audio, image, image]) as api:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                p, "api_post", side_effect=[audio, image, audio, image, image]) as api, \
+                patch.object(p, "check_image_text"):
             value = board()
             p.generate_assets(value, Path(tmp), "voice")
             self.assertEqual(api.call_count, 4)

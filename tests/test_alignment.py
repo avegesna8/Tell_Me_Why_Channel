@@ -32,7 +32,7 @@ class AlignmentTests(unittest.TestCase):
         image = Mock()
         image.json.return_value = {"data": [{"b64_json": "aW1hZ2U="}]}
         with tempfile.TemporaryDirectory() as temp, patch.object(p, "api_post", return_value=image) as api, \
-             patch.object(p, "check_runpod_narration"):
+             patch.object(p, "check_runpod_narration"), patch.object(p, "check_image_text"):
             p.generate_assets(value, Path(temp), "", runpod=runpod, narration_mode="continuous")
             runpod.synthesize.assert_called_once()
             self.assertEqual(runpod.synthesize.call_args.args[0], "One short scene. Another scene follows.")

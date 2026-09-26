@@ -38,7 +38,8 @@ class ImageContextTests(unittest.TestCase):
             root = Path(temp)
             ref = root / "base.png"
             ref.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
-            with patch.object(p, "api_post", side_effect=[audio, image, audio, image, image]) as api:
+            with patch.object(p, "api_post", side_effect=[audio, image, audio, image, image]) as api, \
+                 patch.object(p, "check_image_text"):
                 p.generate_assets(value, root, "voice", image_reference=ref)
                 self.assertEqual(api.call_args_list[1].args[2], "/images/edits")
                 self.assertEqual(api.call_args_list[3].args[2], "/images/generations")
@@ -58,7 +59,7 @@ class ImageSafetyFallbackTests(unittest.TestCase):
         image = Mock(); image.json.return_value = {'data': [{'b64_json': 'aW1hZ2U='}]}
         with tempfile.TemporaryDirectory() as tmp, patch.object(
                 p, 'api_post', side_effect=[RuntimeError('request rejected by the safety system'), image]) as api, \
-                patch.object(p, 'check_runpod_narration'):
+                patch.object(p, 'check_runpod_narration'), patch.object(p, 'check_image_text'):
             p.generate_assets(value, Path(tmp)/'assets', '', runpod=runpod, narration_mode='continuous')
             self.assertEqual(api.call_count, 2)
             self.assertEqual(api.call_args.args[2], '/images/generations')

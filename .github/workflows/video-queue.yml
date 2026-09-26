@@ -70,7 +70,7 @@ jobs:
       - name: Install video tools and fetch voice reference
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          sudo apt-get install -y ffmpeg fonts-dejavu-core tesseract-ocr
           gcloud storage cp "gs://$GCS_BUCKET/config/reference.wav" "$RUNPOD_REFERENCE_AUDIO"
       - uses: actions/setup-python@v5
         with:
@@ -107,6 +107,10 @@ jobs:
             ${{ steps.production.outputs.project }}/upload-details.json
             ${{ steps.production.outputs.project }}/soundtrack.json
             ${{ steps.production.outputs.project }}/short/soundtrack.json
+            ${{ steps.production.outputs.project }}/image-quality.json
+            ${{ steps.production.outputs.project }}/short/image-quality.json
+            ${{ steps.production.outputs.project }}/narration-quality.json
+            ${{ steps.production.outputs.project }}/short/narration-quality.json
       - name: Archive completed queue item
         if: steps.production.outputs.completed_item != ''
         env:

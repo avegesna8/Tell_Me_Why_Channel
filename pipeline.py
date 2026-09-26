@@ -437,6 +437,49 @@ def image_prompt(board, scene):
             f"STORY CONTEXT:\n{json.dumps(context, ensure_ascii=False, indent=2)}")
 
 
+def text_free_retry_prompt(prompt):
+    return (prompt + "\nQUALITY CORRECTION: The previous illustration accidentally contained lettering. "
+            "Create a fresh composition with absolutely no readable text, letters, numbers, captions, labels, "
+            "logos, signs, interface words, or typographic marks anywhere. Replace signs and screens with blank "
+            "color shapes or purely pictorial symbols. Do not attempt to spell any word.")
+
+
+def request_image_bytes(payload, reference=None):
+    endpoint = "/images/edits" if reference else "/images/generations"
+    response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", endpoint, payload,
+                        image_reference=reference) if reference else api_post(
+                            "https://api.openai.com/v1", "OPENAI_API_KEY", endpoint, payload)
+    return base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
+
+
+def check_image_text(path, payload, reference, directory, stem, signature):
+    """OCR a scene and regenerate it at most once when readable text is detected."""
+    from image_quality import cached_scene, inspect
+    report_path = directory.parent / "image-quality.json"
+    report = json.loads(report_path.read_text()) if report_path.exists() else {"scenes": {}}
+    scene_report = cached_scene(report_path, stem, path, signature)
+    if scene_report is None:
+        print(f"Checking {stem} for accidental text…", flush=True)
+        scene_report = inspect(path)
+        scene_report.update(attempt=1, prompt_signature=signature)
+        report.setdefault("scenes", {})[stem] = scene_report
+        save_json(report_path, report)
+    if not scene_report["passed"] and scene_report.get("attempt") == 1:
+        first_detected = scene_report["detected_text"]
+        words = ", ".join(item["text"] for item in first_detected[:5])
+        print(f"OCR found text in {stem} ({words}); regenerating that scene once…", flush=True)
+        retry = {**payload, "prompt": text_free_retry_prompt(payload["prompt"])}
+        atomic_write(directory / f"{stem}.prompt-text-retry.txt", retry["prompt"].encode())
+        atomic_write(path, request_image_bytes(retry, reference))
+        scene_report = inspect(path)
+        scene_report.update(attempt=2, prompt_signature=signature, first_detected_text=first_detected)
+        report.setdefault("scenes", {})[stem] = scene_report
+        save_json(report_path, report)
+    if not scene_report["passed"]:
+        raise RuntimeError(f"{stem} still contains readable text after one regeneration. "
+                           "Review image-quality.json; later images were not generated.")
+
+
 def safe_image_fallback(board):
     """Provider-safe connective visual used only after an image safety rejection."""
     orientation = "vertical 9:16" if board["aspect_ratio"] == "9:16" else "widescreen 16:9"
@@ -550,6 +593,8 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
                 print(f"Reusing {path.name}", flush=True)
                 if kind == "audio" and runpod and narration_mode == "continuous":
                     check_runpod_narration(path, tts_text, directory, runpod, signature)
+                if kind == "image":
+                    check_image_text(path, payload, reference, directory, stem, signature)
                 continue
             print(f"Generating {kind} for {stem}…", flush=True)
             if kind == "audio":
@@ -563,25 +608,24 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             else:
                 atomic_write(directory / f"{stem}.prompt.txt", payload["prompt"].encode())
                 try:
-                    if reference:
-                        response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/edits", payload,
-                                            image_reference=reference)
-                    else:
-                        response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/generations", payload)
+                    data = request_image_bytes(payload, reference)
                 except RuntimeError as exc:
                     if "safety system" not in str(exc).lower():
                         raise
                     fallback = {**payload, "prompt": safe_image_fallback(board)}
                     atomic_write(directory / f"{stem}.prompt-safety-fallback.txt", fallback["prompt"].encode())
                     print(f"Image safety filter rejected {stem}; generating a neutral cutaway…", flush=True)
-                    response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/generations", fallback)
-                data = base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
+                    data = request_image_bytes(fallback)
+                    payload = fallback
             if not data:
                 raise RuntimeError(f"Provider returned empty {kind}.")
             atomic_write(path, data)
+            # Save the provider result before QA so a failed check resumes without buying the original image again.
+            save_json(stamp, {"signature": signature, "file": path.name})
             if kind == "audio" and runpod and narration_mode == "continuous":
                 check_runpod_narration(path, tts_text, directory, runpod, signature)
-            save_json(stamp, {"signature": signature, "file": path.name})
+            if kind == "image":
+                check_image_text(path, payload, reference, directory, stem, signature)
 
 
 def audio_asset(assets, stem):
