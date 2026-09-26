@@ -41,6 +41,19 @@ class CloudStorageTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.store.restore()
 
+    def test_discard_project_removes_all_revisions_and_cloud_objects(self):
+        directory = self.root/'projects'/'idea-1'/'revision-002'
+        directory.mkdir(parents=True); (directory/'video.mp4').write_bytes(b'video')
+        self.store.known['projects/idea-1/revision-002/video.mp4'] = (1, 5)
+        blobs = [Mock(generation=10), Mock(generation=11)]
+        self.bucket.list_blobs.return_value = blobs
+        self.store.discard_project('idea-1')
+        self.bucket.list_blobs.assert_called_once_with(prefix='pipeline/projects/idea-1/')
+        for blob in blobs:
+            blob.delete.assert_called_once_with(if_generation_match=blob.generation)
+        self.assertFalse((self.root/'projects'/'idea-1').exists())
+        self.assertEqual(self.store.known, {})
+
     def test_cleanup_only_old_completed_uploaded_items(self):
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=8)).isoformat()

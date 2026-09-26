@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import smtplib
 import ssl
 import subprocess
@@ -49,7 +50,7 @@ def validate_queue(value):
 
 def choose_item(queue, state):
     return next((i for i in queue['items'] if i.get('enabled', True)
-                 and state.get(i['id'], {}).get('status') != 'done'), None)
+                 and state.get(i['id'], {}).get('status') not in ('done', 'discarded')), None)
 
 
 def review_digest(item, project):
@@ -90,7 +91,7 @@ def email_summary(item, project, state, save, kind):
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approval_code': state['review_digest'],
-                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate']}
+                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate', 'delete']}
     p.save_json(project / 'upload-details.json', report)
     videos = [project/'video.mp4', project/'short/video.mp4']
     attach_videos = sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024
@@ -99,9 +100,10 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to upload both videos privately, or regenerate to create a completely new version of this idea. '
-         'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
-         'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
+         'approve to upload both videos privately, regenerate to create a completely new version, or delete to permanently '
+         'discard the package without uploading. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
+         'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
+         'Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
                  project/'script-quality.json', project/'speech-text.txt', project/'speech-preparation.json',
                  project/'production-review.json', project/'short/production-review.json',
@@ -123,6 +125,32 @@ def email_summary(item, project, state, save, kind):
         state[key] = 'sending'; save()
         client.send_message(message)
         state[key] = 'sent'; save()
+
+
+def apply_deletion(item, state, root, save, cloud=None):
+    if os.getenv('REVIEW_ACTION', 'approve') != 'delete':
+        return False
+    code = os.getenv('APPROVAL_CODE', '')
+    if not code:
+        raise ValueError('Deletion requires the code from its review email.')
+    if state.get('status') not in ('ready', 'awaiting_approval'):
+        raise ValueError('Delete is available only for a generated package awaiting review.')
+    if any(upload.get('id') or upload.get('session') or upload.get('started')
+           for upload in state.get('uploads', {}).values()):
+        raise ValueError('Delete cannot remove a package after a YouTube upload began; reconcile it in YouTube Studio.')
+    if code != state.get('review_digest') or state.get('email_review') != 'sent':
+        raise ValueError('Deletion code is stale or has not been emailed.')
+    signature, revision = state.get('signature'), state.get('revision', 1)
+    if cloud:
+        cloud.discard_project(item['id'])
+    else:
+        shutil.rmtree(Path(root) / 'projects' / item['id'], ignore_errors=True)
+    state.clear()
+    state.update(status='discarded', discarded_at=datetime.now(timezone.utc).isoformat(),
+                 signature=signature, revision=revision)
+    save()
+    print(f"Discarded {item['id']}; no YouTube uploads were sent.", flush=True)
+    return True
 
 
 def apply_regeneration(item, state, save):
@@ -147,7 +175,7 @@ def apply_regeneration(item, state, save):
     save()
 
 
-def process(item, queue, root, states, save):
+def process(item, queue, root, states, save, cloud=None):
     state = states.setdefault(item['id'], {})
     signature = p.fingerprint({k: item.get(k) for k in ('idea', 'notes', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
     legacy_signature = p.fingerprint({k: item.get(k) for k in ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
@@ -159,6 +187,8 @@ def process(item, queue, root, states, save):
     if saved_signature and saved_signature != signature and not empty_notes_migration:
         raise ValueError('Queued idea/settings changed after processing started. Create a new item ID.')
     state['signature'] = signature; save()
+    if apply_deletion(item, state, root, save, cloud):
+        return
     apply_regeneration(item, state, save)
     project = root / 'projects' / item['id']
     if state.get('revision', 1) > 1:
@@ -270,7 +300,7 @@ def main():
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return
-        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate'):
+        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'delete'):
             raise ValueError('Unknown review action.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']
@@ -283,8 +313,8 @@ def main():
             with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
                 output.write(f"project={root / 'projects' / item['id']}\n")
         try:
-            process(item, queue, root, states, save)
-            if states.get(item['id'], {}).get('status') == 'done' and os.getenv('GITHUB_OUTPUT'):
+            process(item, queue, root, states, save, cloud)
+            if states.get(item['id'], {}).get('status') in ('done', 'discarded') and os.getenv('GITHUB_OUTPUT'):
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
                     output.write(f"completed_item={item['id']}\n")
         except Exception as exc:

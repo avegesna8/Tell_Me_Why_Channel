@@ -51,6 +51,16 @@ class CloudStore:
             stat = target.stat()
             self.known[name] = (stat.st_mtime_ns, stat.st_size)
 
+    def discard_project(self, item_id):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', item_id):
+            raise ValueError('Invalid stored queue ID.')
+        prefix = 'pipeline/projects/' + item_id + '/'
+        for blob in self.bucket.list_blobs(prefix=prefix):
+            blob.delete(if_generation_match=blob.generation)
+        shutil.rmtree(self.root / 'projects' / item_id, ignore_errors=True)
+        for name in [name for name in self.known if name.startswith('projects/' + item_id + '/')]:
+            self.known.pop(name, None)
+
     def cleanup(self, states, save, now=None):
         now = now or datetime.now(timezone.utc)
         for item_id, state in states.items():

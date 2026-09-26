@@ -12,6 +12,7 @@ on:
         options:
           - approve
           - regenerate
+          - delete
         default: approve
       approval_code:
         description: 'Paste the approval code from that same review email'

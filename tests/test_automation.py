@@ -24,6 +24,7 @@ class AutomationTests(unittest.TestCase):
         q = {'items': [item(), {**item(), 'id': 'second'}]}
         self.assertEqual(choose_item(q, {'imax-001': {'status': 'awaiting_approval'}})['id'], 'imax-001')
         self.assertEqual(choose_item(q, {'imax-001': {'status': 'done'}})['id'], 'second')
+        self.assertEqual(choose_item(q, {'imax-001': {'status': 'discarded'}})['id'], 'second')
 
     def test_queue_rejects_duplicate_and_traversal(self):
         for items in [[item(), item()], [{**item(), 'id': '../secrets'}]]:
@@ -195,6 +196,38 @@ class AutomationTests(unittest.TestCase):
             self.assertNotIn('approved_digest', states['imax-001'])
             self.assertEqual(states['imax-001']['status'], 'awaiting_approval')
             yt.assert_not_called()
+
+    def test_delete_discards_cloud_package_without_uploading(self):
+        state = {'status': 'awaiting_approval', 'review_digest': 'v1', 'email_review': 'sent',
+                 'revision': 2}
+        states = {'imax-001': state}; cloud = Mock(); save = Mock()
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                'os.environ', {'REVIEW_ACTION': 'delete', 'APPROVAL_CODE': 'v1'}), \
+                patch('automation.queue_runner.subprocess.run') as run, \
+                patch('automation.queue_runner.YouTube') as youtube:
+            process(item(), {'email_mode': 'review'}, Path(tmp), states, save, cloud)
+        cloud.discard_project.assert_called_once_with('imax-001')
+        run.assert_not_called(); youtube.assert_not_called()
+        self.assertEqual(state['status'], 'discarded')
+        self.assertEqual(state['revision'], 2)
+        self.assertNotIn('review_digest', state)
+        self.assertGreaterEqual(save.call_count, 2)
+
+    def test_delete_rejects_missing_stale_or_uploaded_package(self):
+        from automation.queue_runner import apply_deletion
+        base = {'status': 'awaiting_approval', 'review_digest': 'right', 'email_review': 'sent'}
+        cases = [
+            ({**base}, {'REVIEW_ACTION': 'delete', 'APPROVAL_CODE': ''}),
+            ({**base}, {'REVIEW_ACTION': 'delete', 'APPROVAL_CODE': 'wrong'}),
+            ({**base, 'uploads': {'long': {'id': 'youtube-id'}}},
+             {'REVIEW_ACTION': 'delete', 'APPROVAL_CODE': 'right'}),
+        ]
+        for state, environment in cases:
+            with self.subTest(state=state), patch.dict('os.environ', environment):
+                cloud = Mock()
+                with self.assertRaises(ValueError):
+                    apply_deletion(item(), state, Path('/unused'), Mock(), cloud)
+                cloud.discard_project.assert_not_called()
 
     def test_regeneration_archives_and_resets_approval_only_once(self):
         from automation.queue_runner import apply_regeneration
