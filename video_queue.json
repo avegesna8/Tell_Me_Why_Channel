@@ -1,7 +1,18 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [],
+  "items": [
+    {
+      "id": "why-russell-wilson-is-underrated-ff28839a",
+      "idea": "Why Russell Wilson is Underrated?",
+      "notes": "Talk about how much success russell wilson had on the seahwaks and mention his failures afterwards but meniton how much his success rivals top qbs in the generation. Also, talk about what his career woudl have been if not picked off against the patriots in that superbowl",
+      "minutes": 1,
+      "short_seconds": 45,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
+    }
+  ],
   "timezone": "America/New_York",
   "notification_email": "abhinn.varma@gmail.com"
 }
