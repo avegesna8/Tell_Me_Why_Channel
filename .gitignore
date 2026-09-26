@@ -29,3 +29,5 @@ gha-creds-*.json
 audio/library.runtime.json
 audio/music/
 audio/sfx/
+
+.queue-web.lock

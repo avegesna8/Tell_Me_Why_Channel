@@ -1,3 +1,9 @@
+## Add ideas from a local webpage
+
+Double-click `start_queue_dashboard.command` or run `.venv/bin/python queue_web.py`.
+The private localhost form validates, commits and pushes queue ideas without manual
+JSON or Git commands. It also links to the manual production workflow after a push.
+
 # Tell_Me_Why_Channel
 
 Queue automation, GitHub Actions, email review and YouTube scheduling are

@@ -6,6 +6,22 @@ This pipeline uses its own private Tell_Me_Why_Channel GitHub repository,
 separate from the RunPod voice-worker repository.
 Never include `.env`, OAuth files, `.venv`, or `runs` in the repository.
 
+## Local queue dashboard
+
+Double-click `start_queue_dashboard.command`, or run:
+
+```sh
+.venv/bin/python queue_web.py
+```
+
+The server binds only to `127.0.0.1` and opens `http://127.0.0.1:8765` in the
+default browser. The form validates an idea, creates a stable unique ID, edits only
+`video_queue.json`, commits that file and pushes `main`. Retrying the same browser
+submission is idempotent. Existing manually edited queue entries appear on the page
+and can be validated, committed and pushed with one button. Other working-tree files
+are never staged. After a successful push, use the page's production-workflow link
+to start the manual review-only run.
+
 ## Queue and timing
 
 Edit `video_queue.json`. Items are processed in array order, one per workflow run.
