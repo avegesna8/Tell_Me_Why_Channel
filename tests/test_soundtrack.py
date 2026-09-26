@@ -129,3 +129,41 @@ class SoundtrackTests(unittest.TestCase):
                 metadata(root);metadata(root)
             saved=json.loads((root/'metadata.json').read_text())
             self.assertEqual(saved['long']['description'].count('Music by Example, CC BY'),1)
+
+class ReservedIntroTests(unittest.TestCase):
+    def test_intro_is_forced_and_clears_competing_opening_effects(self):
+        entries = [
+            {'id': 'intro-id', 'kind': 'sfx', 'file': 'sfx/Intro.mp3', 'duration_seconds': 1.2,
+             'clip_seconds': 1, 'start_seconds': 0, 'attribution_required': False},
+            {'id': 'pop', 'kind': 'sfx', 'file': 'sfx/Pop.mp3', 'attribution_required': False},
+        ]
+        plan = {'music_id': None, 'effects': [
+            {'effect_id': 'pop', 'at_seconds': 5, 'clip_seconds': 1, 'source_start': 0},
+            {'effect_id': 'pop', 'at_seconds': 15, 'clip_seconds': 1, 'source_start': 0}], 'credits': []}
+        result = s.add_reserved_intro(plan, entries, 30)
+        self.assertEqual([cue['at_seconds'] for cue in result['effects']], [0, 15])
+        self.assertTrue(result['effects'][0]['reserved_intro'])
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg required')
+    def test_intro_mix_animates_opening_and_preserves_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p.run_ffmpeg(['-f', 'lavfi', '-i', 'color=c=red:s=160x90:r=10:d=2',
+                          '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo:d=2',
+                          '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(root/'video.mp4')])
+            p.run_ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=1200:duration=1:sample_rate=48000', str(root/'intro.wav')])
+            entry = {'id': 'intro-id', 'kind': 'sfx', 'file': 'sfx/Intro.mp3', 'path': root/'intro.wav',
+                     'sha256': s.file_hash(root/'intro.wav'), 'duration_seconds': 1,
+                     'clip_seconds': 1, 'start_seconds': 0, 'attribution_required': False}
+            plan = s.add_reserved_intro({'music_id': None, 'effects': [], 'credits': []}, [entry], 2)
+            s.mix_video(root, [entry], plan)
+            self.assertAlmostEqual(p.duration(root/'video.mp4'), 2, delta=.1)
+            saved = json.loads((root/'soundtrack.json').read_text())
+            self.assertTrue(saved['effects'][0]['reserved_intro'])
+            frame = subprocess.run(['ffmpeg', '-v', 'error', '-ss', '0', '-i', str(root/'video.mp4'),
+                                    '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+                                   capture_output=True, check=True).stdout
+            later = subprocess.run(['ffmpeg', '-v', 'error', '-ss', '0.7', '-i', str(root/'video.mp4'),
+                                    '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+                                   capture_output=True, check=True).stdout
+            self.assertLess(sum(frame), sum(later))

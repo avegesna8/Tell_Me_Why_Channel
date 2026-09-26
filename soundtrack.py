@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from fractions import Fraction
 
 
 def file_hash(path):
@@ -69,6 +70,28 @@ def load_library(path, *, check_files=True):
     return entries
 
 
+def is_reserved_intro(entry):
+    return entry.get('kind') == 'sfx' and Path(entry.get('file', '')).stem.casefold() == 'intro'
+
+
+def add_reserved_intro(plan, entries, seconds):
+    intro = next((entry for entry in entries if is_reserved_intro(entry)), None)
+    if not intro:
+        return plan
+    length = min(float(intro.get('clip_seconds', 1)), float(intro.get('duration_seconds', 1)), seconds)
+    if not math.isfinite(length) or length <= 0:
+        raise ValueError('Intro sound effect has an invalid duration.')
+    cue = {'effect_id': intro['id'], 'word_index': 0, 'word': '', 'at_seconds': 0.0,
+           'clip_seconds': length, 'source_start': float(intro.get('start_seconds', 0)),
+           'reserved_intro': True}
+    # Keep the opening clean: the regular planner may resume effects after twelve seconds.
+    effects = [effect for effect in plan['effects'] if effect['at_seconds'] >= 12]
+    credits = list(plan.get('credits', []))
+    if intro.get('attribution_required') and intro.get('attribution_text') not in credits:
+        credits.append(intro['attribution_text'])
+    return {**plan, 'effects': [cue] + effects, 'credits': credits}
+
+
 def resolve_plan(plan, entries, words, seconds):
     by_id = {e['id']: e for e in entries}
     if plan.get('music_id') is not None and (plan['music_id'] not in by_id or by_id[plan['music_id']]['kind'] != 'music'):
@@ -109,7 +132,8 @@ def make_plan(project, entries):
     alignment = json.loads((project/'alignment.json').read_text())
     words = alignment['words']
     seconds = p.duration(project/'video.mp4')
-    catalog = [{k:v for k,v in e.items() if k != 'path'} for e in entries]
+    planner_entries = [entry for entry in entries if not is_reserved_intro(entry)]
+    catalog = [{k:v for k,v in e.items() if k != 'path'} for e in planner_entries]
     request = {'title':board['title'], 'scenes':board['scenes'], 'seconds':seconds,
                'words':[{'index':i, **w} for i,w in enumerate(words)], 'library':catalog}
     signature = p.fingerprint({'request':{k:v for k,v in request.items() if k != 'library'}, 'version':2})
@@ -123,10 +147,10 @@ def make_plan(project, entries):
                for ident,digest in saved.get('asset_hashes',{}).items()):
             raise ValueError('A previously selected audio asset changed or is missing; use a new revision.')
         return resolve_plan(saved['plan'], entries, words, seconds)
-    effect_schema = p.object_schema({'effect_id':{'type':'string', **({'enum':[e['id'] for e in entries if e['kind']=='sfx']} if any(e['kind']=='sfx' for e in entries) else {})},
+    effect_schema = p.object_schema({'effect_id':{'type':'string', **({'enum':[e['id'] for e in planner_entries if e['kind']=='sfx']} if any(e['kind']=='sfx' for e in planner_entries) else {})},
                                     'word_index':{'type':'integer'}})
     maximum = min(40, max(1, math.floor(seconds/20)))
-    schema = p.object_schema({'music_id':{'type':['string','null'],'enum':[None]+[e['id'] for e in entries if e['kind']=='music']},
+    schema = p.object_schema({'music_id':{'type':['string','null'],'enum':[None]+[e['id'] for e in planner_entries if e['kind']=='music']},
                               'effects':{'type':'array','items':effect_schema,'maxItems':maximum}})
     result = p.api_post('https://api.openai.com/v1','OPENAI_API_KEY','/responses',{
         'model':os.getenv('OPENAI_PLAN_MODEL','gpt-4.1-mini'),
@@ -163,7 +187,7 @@ def mix_video(project, entries, plan):
     current = file_hash(video)
     by_id = {e['id']:e for e in entries}
     selected = {c['effect_id'] for c in plan['effects']} | ({plan['music_id']} if plan['music_id'] else set())
-    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':2})
+    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':3})
     if current == stamp.get('output_hash') and signature == stamp.get('signature'):
         return
     # Keep a dry source and record both sides of replacement for interruption-safe retries.
@@ -199,8 +223,22 @@ def mix_video(project, entries, plan):
                    'alimiter=limit=0.95:level=false:latency=true[mix]')
     output = project/'soundtrack.partial.mp4'
     if selected:
-        p.run_ffmpeg(args+['-filter_complex',';'.join(filters),'-map','0:v:0','-map','[mix]',
-            '-map','0:s?','-c:v','copy','-c:s','copy','-c:a','aac','-b:a','192k','-ar','48000',
+        intro = any(cue.get('reserved_intro') for cue in plan['effects'])
+        video_map, video_codec = ['0:v:0'], ['-c:v', 'copy']
+        if intro:
+            probe = subprocess.run([p.binary('ffprobe'), '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=width,height,avg_frame_rate', '-of', 'json', str(dry)],
+                capture_output=True, text=True, check=True)
+            stream = json.loads(probe.stdout)['streams'][0]
+            width, height = int(stream['width']), int(stream['height'])
+            fps = float(Fraction(stream.get('avg_frame_rate', '30/1'))) or 30
+            frames = max(1, round(fps * min(.55, seconds / 4)))
+            filters.append(f'[0:v]zoompan=z=\'if(lt(on,{frames}),1.10-0.10*on/{frames},1)\':'
+                           f'x=\'iw/2-iw/zoom/2\':y=\'ih/2-ih/zoom/2\':d=1:s={width}x{height}:fps={fps},'
+                           'fade=t=in:st=0:d=0.12,format=yuv420p[vintro]')
+            video_map, video_codec = ['[vintro]'], ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20']
+        p.run_ffmpeg(args+['-filter_complex',';'.join(filters),'-map',video_map[0],'-map','[mix]',
+            '-map','0:s?',*video_codec,'-c:s','copy','-c:a','aac','-b:a','192k','-ar','48000',
             '-t',str(seconds),'-movflags','+faststart',str(output)])
     else:
         shutil.copyfile(dry,output)  # Narration only: no unnecessary audio re-encoding.
@@ -214,8 +252,10 @@ def mix_video(project, entries, plan):
 
 def apply_to_video(project, library):
     entries = load_library(library)
-    plan = make_plan(Path(project),entries)
-    mix_video(project,entries,plan)
+    project = Path(project)
+    plan = make_plan(project, entries)
+    plan = add_reserved_intro(plan, entries, __import__('pipeline').duration(project/'video.mp4'))
+    mix_video(project, entries, plan)
 
 
 def fetch_library(library, bucket_name):
