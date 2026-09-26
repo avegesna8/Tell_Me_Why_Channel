@@ -4,6 +4,9 @@ import math
 import re
 
 
+_WHISPER_MODELS = {}
+
+
 def normalized(word):
     return re.sub(r"[^\w]", "", word.casefold())
 
@@ -70,8 +73,13 @@ def transcribe(audio_path, model_name="small"):
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise RuntimeError("Install faster-whisper to align continuous narration: pip install faster-whisper") from exc
-    print(f"Aligning narration locally with Whisper ({model_name}); first use may download the model…", flush=True)
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    key = (model_name, "cpu", "int8")
+    model = _WHISPER_MODELS.get(key)
+    if model is None:
+        print(f"Loading Whisper ({model_name}); first use may download the model…", flush=True)
+        model = WhisperModel(model_name, device=key[1], compute_type=key[2])
+        _WHISPER_MODELS[key] = model
+    print(f"Aligning narration locally with Whisper ({model_name})…", flush=True)
     segments, _ = model.transcribe(str(audio_path), word_timestamps=True, vad_filter=False)
     words = []
     for segment in segments:

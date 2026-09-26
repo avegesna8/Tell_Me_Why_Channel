@@ -507,11 +507,13 @@ def asset_payloads(board, scene, voice, *, require_voice=True):
     return speech, image
 
 
-def check_runpod_narration(path, text, directory, runpod, signature):
+def check_runpod_narration(path, text, directory, runpod, signature, *, report_stem="narration"):
     """Validate one continuous track locally and allow one resumable retry."""
     from narration_quality import cached_report, inspect
     model = os.getenv("WHISPER_MODEL", "small")
-    report_path = directory.parent / "narration-quality.json"
+    report_name = "narration-quality.json" if report_stem == "narration" else f"{report_stem}-quality.json"
+    transcript_name = "transcript.json" if report_stem == "narration" else f"{report_stem}-transcript.json"
+    report_path = directory.parent / report_name
     report = cached_report(report_path, path, text, model)
     if report is not None and report.get("passed"):
         print(f"Reusing passed narration quality check ({report['matched_fraction']:.0%} transcript match).", flush=True)
@@ -521,24 +523,70 @@ def check_runpod_narration(path, text, directory, runpod, signature):
         report = inspect(path, text, model)
         report.update(attempt=1, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
         words = report.pop("words")
-        save_json(directory.parent / "transcript.json", {
+        save_json(directory.parent / transcript_name, {
             "audio_sha256": report["audio_sha256"], "model": model, "words": words})
         save_json(report_path, report)
     if not report["passed"]:
-        retry_path = directory / "narration.runpod-retry-job.json"
+        retry_path = directory / f"{report_stem}.runpod-retry-job.json"
         retry_signature = fingerprint({"base": signature, "quality_retry": 1})
         print("Narration quality check failed; requesting one fresh RunPod attempt…", flush=True)
         atomic_write(path, runpod.synthesize(text, retry_path, retry_signature))
         report = inspect(path, text, model)
         report.update(attempt=2, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
         words = report.pop("words")
-        save_json(directory.parent / "transcript.json", {
+        save_json(directory.parent / transcript_name, {
             "audio_sha256": report["audio_sha256"], "model": model, "words": words})
         save_json(report_path, report)
     if not report["passed"]:
         raise RuntimeError("Narration failed local quality checks after one retry. "
                            "Review narration-quality.json and transcript.json; images were not generated.")
     print(f"Narration quality passed ({report['matched_fraction']:.0%} transcript match).", flush=True)
+
+
+def check_joined_narration(path, text, directory):
+    from narration_quality import cached_report, inspect
+    model = os.getenv("WHISPER_MODEL", "small")
+    report_path = directory.parent / "narration-quality.json"
+    report = cached_report(report_path, path, text, model)
+    if report is None:
+        print("Checking the joined narration for smooth, complete delivery…", flush=True)
+        report = inspect(path, text, model)
+        report.update(attempt=1, sectioned=True, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
+        words = report.pop("words")
+        save_json(directory.parent / "transcript.json", {
+            "audio_sha256": report["audio_sha256"], "model": model, "words": words})
+        save_json(report_path, report)
+    if not report.get("passed"):
+        raise RuntimeError("Joined narration failed local quality checks. Review narration-quality.json; images were not generated.")
+    print(f"Joined narration quality passed ({report['matched_fraction']:.0%} transcript match).", flush=True)
+
+
+def generate_sectioned_narration(directory, runpod, written_sections, speech_sections):
+    from narration_sections import join_wavs
+    parts = []
+    for index, (written, speech) in enumerate(zip(written_sections, speech_sections), 1):
+        stem = f"narration-part-{index:03}"
+        path, stamp = directory / f"{stem}.wav", directory / f"{stem}.audio.json"
+        signature = fingerprint(runpod.fingerprint_data(speech))
+        reusable = (path.exists() and path.stat().st_size and stamp.exists()
+                    and json.loads(stamp.read_text()).get("signature") == signature)
+        if reusable:
+            print(f"Reusing {path.name}", flush=True)
+        else:
+            print(f"Generating narration section {index}/{len(speech_sections)}…", flush=True)
+            atomic_write(path, runpod.synthesize(speech, directory / f"{stem}.runpod-job.json", signature))
+            save_json(stamp, {"signature": signature, "file": path.name, "written_text": written})
+        check_runpod_narration(path, speech, directory, runpod, signature, report_stem=stem)
+        parts.append(path)
+    output, stamp = directory / "narration.wav", directory / "narration.audio.json"
+    join_signature = fingerprint({"parts": [hashlib.sha256(path.read_bytes()).hexdigest() for path in parts],
+                                  "pause_seconds": .18, "join_version": 1})
+    reusable = output.exists() and output.stat().st_size and stamp.exists() and json.loads(stamp.read_text()).get("signature") == join_signature
+    if not reusable:
+        print(f"Joining {len(parts)} narration sections with natural pauses…", flush=True)
+        join_wavs(parts, output, run_ffmpeg, pause_seconds=.18)
+        save_json(stamp, {"signature": join_signature, "file": output.name, "sections": len(parts)})
+    check_joined_narration(output, " ".join(speech_sections), directory)
 
 
 def generate_assets(board, directory, voice, *, runpod=None, narration_mode="scenes", image_reference=None):
@@ -554,6 +602,7 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
         written_narration = " ".join(s["narration"] for s in scenes)
         speech_narration = written_narration
         if runpod:
+            from narration_sections import split_sections
             from speech_text import prepare_speech_text
             report_paths = (directory.parent / "production-review.json", directory.parent / "script-quality.json",
                             directory.parent.parent / "production-review.json",
@@ -562,15 +611,28 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             for report_path in report_paths:
                 if report_path.exists():
                     pronunciations.extend(json.loads(report_path.read_text()).get("pronunciations", []))
-            speech_narration, preparation = prepare_speech_text(
-                written_narration, pronunciations,
-                phoneme_annotations=getattr(runpod, "model_version", "2") == "2.5")
-            preparation.update({"written_text": written_narration, "speech_text": speech_narration,
-                                "single_continuous_narration": True})
+            written_sections = split_sections(scenes)
+            speech_sections, section_reports = [], []
+            for written in written_sections:
+                speech, report = prepare_speech_text(written, pronunciations,
+                    phoneme_annotations=getattr(runpod, "model_version", "2") == "2.5")
+                speech_sections.append(speech); section_reports.append(report)
+            speech_narration = " ".join(speech_sections)
+            preparation = {"written_text": written_narration, "speech_text": speech_narration,
+                           "section_count": len(speech_sections), "sections": [
+                               {"number": i, "written_text": written, "speech_text": speech, **report}
+                               for i, (written, speech, report) in enumerate(
+                                   zip(written_sections, speech_sections, section_reports), 1)]}
             atomic_write(directory.parent / "speech-text.txt", (speech_narration + "\n").encode())
             save_json(directory.parent / "speech-preparation.json", preparation)
-        scenes = [{**scenes[0], "full_narration": True, "narration": written_narration,
-                   "speech_narration": speech_narration}] + scenes
+            if len(speech_sections) > 1:
+                generate_sectioned_narration(directory, runpod, written_sections, speech_sections)
+            else:
+                scenes = [{**scenes[0], "full_narration": True, "narration": written_narration,
+                           "speech_narration": speech_narration}] + scenes
+        else:
+            scenes = [{**scenes[0], "full_narration": True, "narration": written_narration,
+                       "speech_narration": speech_narration}] + scenes
     for scene in scenes:
         speech, image = asset_payloads(board, scene, voice, require_voice=runpod is None)
         tts_text = scene.get("speech_narration", scene["narration"])
