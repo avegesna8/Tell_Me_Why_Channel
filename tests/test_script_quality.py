@@ -12,7 +12,7 @@ def review_response(*, approved=True, score=8, script=None, severity='low'):
     body = {'approved': approved,
             'scores': {key: score for key in ('hook','clarity','flow','accuracy','narration_quality','visual_potential')},
             'remaining_issues': [] if approved else [{'severity': severity, 'reason': 'Needs correction.'}],
-            'changes': ['Improved spoken flow.'], 'final_script': final}
+            'changes': ['Improved spoken flow.'], 'final_script': final, 'pronunciations': []}
     response = Mock()
     response.json.return_value = {'status':'completed','output':[{'type':'message','content':[{
         'type':'output_text','text':json.dumps(body)}]}]}

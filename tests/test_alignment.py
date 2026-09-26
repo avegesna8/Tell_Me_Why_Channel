@@ -26,6 +26,7 @@ class AlignmentTests(unittest.TestCase):
         from test_runpod_tts import wav_bytes
         value = board()
         runpod = Mock()
+        runpod.model_version = "2.5"
         runpod.fingerprint_data.side_effect = lambda text: {"text": text}
         runpod.synthesize.return_value = wav_bytes()
         image = Mock()

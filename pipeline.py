@@ -451,12 +451,27 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
     base = os.getenv("SILICONFLOW_BASE", "https://api.siliconflow.com")
     scenes = board["scenes"]
     if narration_mode == "continuous":
-        scenes = [{**scenes[0], "full_narration": True,
-                   "narration": " ".join(s["narration"] for s in scenes)}] + scenes
+        written_narration = " ".join(s["narration"] for s in scenes)
+        speech_narration = written_narration
+        if runpod:
+            from speech_text import prepare_speech_text
+            report_paths = (directory.parent / "script-quality.json", directory.parent.parent / "script-quality.json")
+            report_path = next((path for path in report_paths if path.exists()), None)
+            report = json.loads(report_path.read_text()) if report_path else {}
+            speech_narration, preparation = prepare_speech_text(
+                written_narration, report.get("pronunciations", []),
+                phoneme_annotations=getattr(runpod, "model_version", "2") == "2.5")
+            preparation.update({"written_text": written_narration, "speech_text": speech_narration,
+                                "single_continuous_narration": True})
+            atomic_write(directory.parent / "speech-text.txt", (speech_narration + "\n").encode())
+            save_json(directory.parent / "speech-preparation.json", preparation)
+        scenes = [{**scenes[0], "full_narration": True, "narration": written_narration,
+                   "speech_narration": speech_narration}] + scenes
     for scene in scenes:
         speech, image = asset_payloads(board, scene, voice, require_voice=runpod is None)
+        tts_text = scene.get("speech_narration", scene["narration"])
         if runpod:
-            speech = runpod.fingerprint_data(scene["narration"])
+            speech = runpod.fingerprint_data(tts_text)
         stem = "narration" if scene.get("full_narration") else f"scene-{scene['id']:03}"
         jobs = (("audio", speech, "wav" if runpod else "mp3"), ("image", image, "png"))
         if narration_mode == "continuous":
@@ -476,7 +491,7 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             print(f"Generating {kind} for {stem}…", flush=True)
             if kind == "audio":
                 if runpod:
-                    data = runpod.synthesize(scene["narration"], directory / f"{stem}.runpod-job.json", signature)
+                    data = runpod.synthesize(tts_text, directory / f"{stem}.runpod-job.json", signature)
                 else:
                     response = api_post(base + "/v1", "SILICONFLOW_API_KEY", "/audio/speech", payload)
                     if "json" in response.headers.get("Content-Type", ""):
