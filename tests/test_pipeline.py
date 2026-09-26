@@ -152,3 +152,22 @@ class PipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PlannerCorrectionTests(unittest.TestCase):
+    def test_wrong_aspect_is_retried_once_with_exact_schema(self):
+        wrong = board(); wrong['aspect_ratio'] = '16:9'
+        right = board(); right['aspect_ratio'] = '9:16'
+        def response(value):
+            result = Mock(); result.json.return_value = {'status': 'completed', 'output': [
+                {'content': [{'type': 'output_text', 'text': json.dumps(value)}]}]}
+            return result
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                p, 'api_post', side_effect=[response(wrong), response(right)]) as post:
+            result = p.plan('One short scene. Another scene follows.', Path(tmp)/'storyboard.json', 2, 'Ink', '9:16')
+            self.assertEqual(result['aspect_ratio'], '9:16')
+            self.assertEqual(post.call_count, 2)
+            retry_input = json.loads(post.call_args.args[3]['input'])
+            self.assertIn('correction', retry_input)
+            schema = post.call_args.args[3]['text']['format']['schema']
+            self.assertEqual(schema['properties']['scenes']['minItems'], 2)
+            self.assertEqual(schema['properties']['scenes']['maxItems'], 2)
