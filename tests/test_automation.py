@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from datetime import datetime, timezone, timedelta
 from automation.queue_runner import approval_schedule, choose_item, validate_queue, process, email_summary
 from automation.youtube import YouTube, future_time
+import pipeline as p
 
 
 def item():
@@ -81,6 +82,27 @@ class AutomationTests(unittest.TestCase):
             yt.upload(path, {}, state, Mock(), made_for_kids=False, synthetic=False)
         self.assertEqual(yt.session.put.call_args.kwargs['data'], b'cdef')
         self.assertEqual(state['id'], 'new-video')
+
+    def test_empty_notes_migrates_existing_item_signature_without_regeneration(self):
+        queued = {**item(), 'notes': '', 'short_seconds': 30}
+        legacy = p.fingerprint({k: queued.get(k) for k in
+            ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
+        legacy = p.fingerprint({'base': legacy, 'short_seconds': 30})
+        states = {queued['id']: {'status': 'ready', 'signature': legacy}}
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.email_summary'), \
+             patch('automation.queue_runner.review_digest', return_value='digest'), \
+             patch('automation.queue_runner.subprocess.run') as run:
+            process(queued, {'email_mode': 'review'}, Path(tmp), states, Mock())
+        run.assert_not_called()
+        self.assertNotEqual(states[queued['id']]['signature'], legacy)
+
+    def test_nonempty_notes_do_not_migrate_existing_signature(self):
+        queued = {**item(), 'notes': 'Use a new example.'}
+        legacy = p.fingerprint({k: queued.get(k) for k in
+            ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
+        states = {queued['id']: {'status': 'ready', 'signature': legacy}}
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, 'settings changed'):
+            process(queued, {'email_mode': 'review'}, Path(tmp), states, Mock())
 
     def test_review_blocks_uploads(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.email_summary') as email, \

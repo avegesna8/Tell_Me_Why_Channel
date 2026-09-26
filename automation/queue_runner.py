@@ -170,9 +170,13 @@ def apply_regeneration(item, state, save):
 def process(item, queue, root, states, save):
     state = states.setdefault(item['id'], {})
     signature = p.fingerprint({k: item.get(k) for k in ('idea', 'notes', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
+    legacy_signature = p.fingerprint({k: item.get(k) for k in ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
     if 'short_seconds' in item:
         signature = p.fingerprint({'base': signature, 'short_seconds': item['short_seconds']})
-    if state.get('signature') and state['signature'] != signature:
+        legacy_signature = p.fingerprint({'base': legacy_signature, 'short_seconds': item['short_seconds']})
+    saved_signature = state.get('signature')
+    empty_notes_migration = not item.get('notes', '').strip() and saved_signature == legacy_signature
+    if saved_signature and saved_signature != signature and not empty_notes_migration:
         raise ValueError('Queued idea/settings changed after processing started. Create a new item ID.')
     state['signature'] = signature; save()
     apply_regeneration(item, state, save)
