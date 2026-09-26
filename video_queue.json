@@ -11,6 +11,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-do-airplanes-leave-white-trails-05f8fc11",
+      "idea": "Why do Airplanes Leave White Trails?",
+      "notes": "",
+      "minutes": 1,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
