@@ -32,6 +32,7 @@ class ShortsTests(unittest.TestCase):
         self.assertEqual(s.fit_speed(52, 55), 1)
         self.assertAlmostEqual(s.fit_speed(65, 55), 65 / 55)
         self.assertAlmostEqual(s.fit_speed(44, 55), .8)
+        self.assertAlmostEqual(s.fit_speed(44.8, 60), .8)
         for length in [0, float('nan'), 20, 100]:
             with self.assertRaises(ValueError):
                 s.fit_speed(length, 55)

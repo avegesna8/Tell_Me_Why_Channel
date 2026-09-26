@@ -64,9 +64,18 @@ def fit_speed(audio_seconds, target):
     # Leave a small margin for frame rounding and AAC padding at the upper bound.
     if not 30 <= target <= 60:
         raise ValueError('Short target must be 30–60 seconds.')
-    speed = (audio_seconds / target if target < 45 else
-             1.0 if 45 <= audio_seconds <= 59.5 else audio_seconds / min(target, 59))
-    if not 0.8 <= speed <= 1.25:
+    if target < 45:
+        speed = audio_seconds / target
+    elif 45 <= audio_seconds <= 59.5:
+        speed = 1.0
+    elif audio_seconds < 45:
+        # The requested duration is a target. Use the slowest natural setting;
+        # final validation below still requires a valid 45–60 second Short.
+        speed = 0.8
+    else:
+        speed = audio_seconds / min(target, 59)
+    adjusted_seconds = audio_seconds / speed
+    if not 0.8 <= speed <= 1.25 or (target >= 45 and not 45 <= adjusted_seconds <= 60):
         raise ValueError(f'Short narration is {audio_seconds:.1f}s; edit short/script.txt to fit the {target}s target '
                          'and remove short/storyboard.json before rerunning. Audio has not been truncated.')
     return speed
