@@ -61,7 +61,7 @@ class CloudStore:
             completed = datetime.fromisoformat(state['completed_at'])
             if now - completed < timedelta(days=7):
                 continue
-            if not all(state.get('uploads', {}).get(k, {}).get('scheduled_at') for k in ('long', 'short')):
+            if not all(state.get('uploads', {}).get(k, {}).get('id') for k in ('long', 'short')):
                 continue
             prefix = 'pipeline/projects/' + item_id + '/'
             for blob in self.bucket.list_blobs(prefix=prefix):

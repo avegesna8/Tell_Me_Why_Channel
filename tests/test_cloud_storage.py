@@ -41,14 +41,14 @@ class CloudStorageTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.store.restore()
 
-    def test_cleanup_only_old_completed_scheduled_items(self):
+    def test_cleanup_only_old_completed_uploaded_items(self):
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=8)).isoformat()
         ready = {'status':'done', 'completed_at':old,
-                 'uploads':{k:{'scheduled_at':old, 'id':k} for k in ('long','short')}}
+                 'uploads':{k:{'id':k} for k in ('long','short')}}
         states = {'old':ready, 'pending':{'status':'awaiting_approval'},
                   'recent':{**ready, 'completed_at':now.isoformat()},
-                  'partial':{**ready, 'uploads':{'long':{'scheduled_at':old}}}}
+                  'partial':{**ready, 'uploads':{'long':{'id':'long'}}}}
         directory = self.root/'projects'/'old'; directory.mkdir(parents=True)
         (directory/'video.mp4').write_bytes(b'video')
         blob = Mock(); blob.generation = 42

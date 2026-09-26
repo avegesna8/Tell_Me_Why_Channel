@@ -1,4 +1,4 @@
-# Queue → long video + Short → thumbnail/metadata → email → scheduled uploads
+# Queue → long video + Short → thumbnail/metadata → email → private YouTube uploads
 
 Production requires cloud storage, provider credentials, SMTP and YouTube OAuth setup.
 Keep ENABLE_VIDEO_AUTOMATION disabled until configuration is complete.
@@ -13,7 +13,7 @@ Stable IDs must never be reused for different ideas. An unfinished first item
 blocks later items. Remove/disable an item only when intentionally skipping it.
 Completed items remain in JSON but are skipped using persistent state.
 
-Example item (choose real future dates; these are illustrative):
+Example item:
 
 ```json
 {
@@ -23,9 +23,7 @@ Example item (choose real future dates; these are illustrative):
   "minutes": 3,
   "enabled": true,
   "made_for_kids": false,
-  "contains_synthetic_media": false,
-  "publish_at": "2026-11-10T17:00:00-05:00",
-  "short_publish_at": "2026-11-11T12:00:00-05:00"
+  "contains_synthetic_media": false
 }
 ```
 
@@ -34,38 +32,30 @@ for the script writer, such as facts or examples to include, desired tone and
 structure, audience context, or claims to avoid. Notes are passed to the writer
 as guidance and are not read aloud verbatim unless that fits the resulting script.
 
-Timezone is America/New_York (Eastern). Supply explicit timestamp offsets:
--04:00 during daylight saving and -05:00 during standard time. Upload times must
-be at least 15 minutes in the future when scheduling runs. Expired times stop the
-job rather than accidentally publishing immediately. The production cron and
-YouTube publish timestamps are independent. The checked-in cron, 13:17 UTC daily,
-is a provisional production time (09:17 EDT / 08:17 EST), not a requested cadence.
-Change it before enabling; Actions schedules can be delayed.
+The GitHub Actions cron controls when the queue is checked. The checked-in cron,
+13:17 UTC daily, is provisional; change it before enabling automatic production.
+It does not publish videos publicly. Approved videos are uploaded immediately with
+YouTube privacy set to `private`.
 
 `email_mode: review` (current default) generates both videos and sends the
 thumbnail, scripts and metadata as attachments to abhinn.varma@gmail.com. The
 email links to the workflow run containing video artifacts. It then waits:
 open the approval workflow link in the email, select **Run workflow**, and paste
-the provided `approve_id` and `approval_code`. The form also lets you optionally
-override the long-video and Short publication times before approval. Use ISO 8601
-with an explicit Eastern offset, such as `2026-10-10T17:00:00-04:00`; a blank field
-uses that video's time from `video_queue.json`. GitHub sign-in and workflow-run
+the provided `approve_id` and `approval_code`. GitHub sign-in and workflow-run
 permission are required. The code binds approval to the exact videos, scripts,
-metadata, thumbnail, audience declarations and publishing times. Edits invalidate
+metadata, thumbnail and audience declarations. Edits invalidate
 approval and cause a new review email. The legacy queue `approved` field is ignored.
-Both videos upload privately, then get scheduled, then a confirmation email
-includes their YouTube links. The channel owner can inspect private videos in
-YouTube Studio. Setting `email_mode: confirmation` skips approval and schedules
-automatically, then emails the details. Do not enable until that is your preference.
+Both videos upload privately, then a confirmation email includes their YouTube
+links. They remain private until the channel owner changes visibility in YouTube
+Studio. Setting `email_mode: confirmation` skips approval, uploads privately and
+then emails the details. Do not enable until that is your preference.
 
 Approval uses the authenticated GitHub workflow form, not an email reply integration.
 Both MP4 files are attached when their combined raw size is at most 14 MiB; larger
 videos are included in the workflow artifact linked from the email. Other attachments
 include both scripts, metadata and the thumbnail. Artifacts appear when the workflow
-finishes and expire after 14 days; private repository access requires GitHub sign-in. If publication times
-have become stale while waiting for review, update them and run production again to receive a fresh review email before approval.
-Once any upload/scheduling starts, do not change metadata or times without
-reconciling the saved state and YouTube Studio.
+finishes and expire after 14 days; private repository access requires GitHub sign-in. Once any upload starts, do not change its files or metadata without reconciling
+the saved state and YouTube Studio.
 
 ## GitHub-hosted runner and private cloud storage
 
@@ -94,7 +84,7 @@ YouTube operation, then delete only that lock object to permit a retry. Never
 remove a lock while its run is active. Normal errors release the lock.
 
 On each production run, project media (including older revisions) is deleted once
-an item has been completed for seven days and both YouTube schedules are saved.
+an item has been completed for seven days and both YouTube video IDs are saved.
 Awaiting-review and failed items are retained. Small state records and YouTube IDs
 remain. Cleanup runs only while automation is enabled and runs successfully far
 enough to acquire storage. Bucket soft-delete/versioning policies can retain deleted
@@ -142,8 +132,9 @@ Copy values to GitHub Secrets and keep the output outside this repository.
 Google's consent/testing configuration can limit refresh-token lifetime.
 Uploads from unverified API projects can be restricted to private viewing until
 YouTube's required audit is completed; a successfully built pipeline does not
-remove that restriction. Confirm your project's eligibility for scheduled public
-publishing. Custom-thumbnail permission must be available on your channel.
+remove that restriction. No public scheduling is performed. Custom-thumbnail permission may require
+additional channel eligibility; if YouTube rejects the thumbnail, both videos still
+upload privately and the confirmation email tells you to add it manually.
 
 The long video gets a generated reference-based 1280×720 thumbnail. The Short
 gets its own title/description/tags, but no custom thumbnail is applied through
@@ -159,8 +150,6 @@ Expired/ambiguous sessions stop for manual reconciliation rather than starting a
 second upload. SMTP cannot guarantee exactly-once delivery: an interrupted send
 leaves email_*=`sending`; inspect the inbox before marking it `sent` or clearing
 that field. Do not clear YouTube upload state without inspecting Studio first.
-If one schedule succeeds and the other fails, the first may still publish at its
-saved time; inspect both in Studio if an error is not resolved before publication.
 
 Retry by manually dispatching the workflow. It resumes the first unfinished
 item. State is at VIDEO_WORK_ROOT/state.json; generated files are under
@@ -192,17 +181,15 @@ Generation incurs the normal provider costs again.
 
 Retrying the same regeneration request resumes its version instead of starting
 another one. A stale code cannot regenerate a newer version. Regeneration is
-allowed before YouTube uploads begin; it does not delete, unschedule, or replace
-videos already on YouTube. Email replies still are not monitored; use the linked
-GitHub workflow form. Keep publishing dates in the future before approving.
-
+allowed before YouTube uploads begin; it does not delete or replace videos already on YouTube. Email replies still are not monitored; use the linked
+GitHub workflow form.
 ## Small manual review tests
 
 Queue items may set `short_seconds` from 30 to 60 (default 55). Main duration uses
 `minutes`. The manual workflow defaults to `review_only: true`: it can run while
-scheduled production is disabled and cannot upload or schedule YouTube videos,
-even if approval inputs are provided. Choose real publishing times and disable
-review-only when approving an emailed package after production is configured.
+scheduled production is disabled and cannot upload YouTube videos, even if
+approval inputs are provided. Disable review-only when approving an emailed package
+after production is configured; approval uploads both videos privately.
 For Shorts under 45 seconds, audio is fitted to the requested target within the
 same 0.8–1.25 speed limits; final duration must be within one second of the target.
 

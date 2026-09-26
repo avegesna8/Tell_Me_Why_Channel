@@ -3,16 +3,14 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from datetime import datetime, timezone, timedelta
-from automation.queue_runner import approval_schedule, choose_item, validate_queue, process, email_summary
-from automation.youtube import YouTube, future_time
+from automation.queue_runner import choose_item, validate_queue, process, email_summary
+from automation.youtube import YouTube
 import pipeline as p
 
 
 def item():
     return {'id': 'imax-001', 'idea': 'What is IMAX?', 'made_for_kids': False,
-            'contains_synthetic_media': False, 'publish_at': '2099-01-01T12:00:00-05:00',
-            'short_publish_at': '2099-01-02T12:00:00-05:00'}
+            'contains_synthetic_media': False}
 
 
 def response(status, body=None, headers=None):
@@ -31,25 +29,6 @@ class AutomationTests(unittest.TestCase):
         for items in [[item(), item()], [{**item(), 'id': '../secrets'}]]:
             with self.assertRaises(ValueError):
                 validate_queue({'email_mode': 'review', 'items': items})
-
-    def test_approval_schedule_overrides_queue_times_independently(self):
-        queued = item()
-        with patch.dict('os.environ', {'APPROVAL_PUBLISH_AT': '2099-02-01T09:30:00-05:00',
-                                       'APPROVAL_SHORT_PUBLISH_AT': ''}, clear=False):
-            self.assertEqual(approval_schedule(queued), {
-                'publish_at': '2099-02-01T09:30:00-05:00',
-                'short_publish_at': queued['short_publish_at']})
-
-    def test_approval_schedule_requires_a_time_from_form_or_queue(self):
-        queued = item(); queued.pop('publish_at')
-        with patch.dict('os.environ', {'APPROVAL_PUBLISH_AT': '', 'APPROVAL_SHORT_PUBLISH_AT': ''}, clear=False):
-            with self.assertRaisesRegex(ValueError, 'publish_at is required'):
-                approval_schedule(queued)
-
-    def test_schedule_requires_future_aware_time(self):
-        for value in ['2020-01-01T00:00:00Z', '2099-01-01T12:00:00']:
-            with self.assertRaises(ValueError): future_time(value)
-        self.assertEqual(future_time('2099-01-01T12:00:00-05:00'), '2099-01-01T17:00:00Z')
 
     def test_ambiguous_upload_does_not_resubmit(self):
         yt = YouTube.__new__(YouTube); yt.session = Mock()
@@ -130,10 +109,10 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(states['imax-001']['status'], 'awaiting_approval')
             yt.assert_not_called(); email.assert_called_once()
 
-    def test_scheduled_email_retry_does_not_upload_again(self):
+    def test_uploaded_email_retry_does_not_upload_again(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.email_summary'), \
              patch('automation.queue_runner.YouTube') as yt:
-            states = {'imax-001': {'status': 'scheduled'}}
+            states = {'imax-001': {'status': 'uploaded'}}
             process(item(), {'email_mode': 'confirmation'}, Path(tmp), states, Mock())
             self.assertEqual(states['imax-001']['status'], 'done'); yt.assert_not_called()
 
@@ -141,7 +120,7 @@ class AutomationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'outcome is unknown'):
             email_summary(item(), Path('/unused'), {'email_review': 'sending'}, Mock(), 'review')
 
-    def test_both_private_uploads_precede_scheduling_and_confirmation(self):
+    def test_both_private_uploads_precede_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
             meta = {k: {'title': k, 'description': 'Description', 'tags': ['topic']} for k in ('long', 'short')}
@@ -153,13 +132,31 @@ class AutomationTests(unittest.TestCase):
                 upload_state['id'] = snippet['title']+'-id'
                 return upload_state['id']
             yt.upload.side_effect = upload
-            yt.schedule.side_effect = lambda video_id, stamp, **kw: events.append('schedule-'+video_id) or stamp
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
                  patch('automation.queue_runner.email_summary', side_effect=lambda *args: events.append('email')):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
-            self.assertEqual(events, ['upload-long', 'upload-short', 'schedule-long-id', 'schedule-short-id', 'email'])
+            self.assertEqual(events, ['upload-long', 'upload-short', 'email'])
             self.assertEqual(states['imax-001']['status'], 'done')
+
+    def test_thumbnail_rejection_does_not_block_private_short_upload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
+            (project/'metadata.json').write_text(json.dumps({
+                k: {'title': k, 'description': 'Description', 'tags': ['topic']} for k in ('long', 'short')}))
+            yt = Mock(); events = []
+            def upload(path, snippet, upload_state, save, **kwargs):
+                events.append('upload-'+snippet['title']); upload_state['id'] = snippet['title']+'-id'
+                return upload_state['id']
+            yt.upload.side_effect = upload
+            yt.thumbnail.side_effect = RuntimeError('HTTP 403 (forbidden)')
+            states = {'imax-001': {'status': 'ready'}}
+            with patch('automation.queue_runner.YouTube', return_value=yt), \
+                 patch('automation.queue_runner.email_summary'):
+                process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
+            self.assertEqual(events, ['upload-long', 'upload-short'])
+            self.assertEqual(states['imax-001']['status'], 'done')
+            self.assertIn('HTTP 403', states['imax-001']['thumbnail_error'])
 
     def test_wrong_approval_cannot_publish(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \

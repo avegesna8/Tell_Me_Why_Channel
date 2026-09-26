@@ -1,16 +1,9 @@
 """Persisted YouTube resumable uploads. Never silently restart an expired upload."""
 import hashlib
 import os
-from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 import requests
 
-
-def future_time(value):
-    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-    if dt.tzinfo is None or dt < datetime.now(timezone.utc) + timedelta(minutes=15):
-        raise ValueError('publish_at must include a timezone and be at least 15 minutes in the future.')
-    return dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 class YouTube:
@@ -98,14 +91,3 @@ class YouTube:
                 params={'videoId': video_id, 'uploadType': 'media'},
                 headers={'Content-Type': 'image/jpeg'}, data=image, timeout=120)
         self.check(r)
-
-    def schedule(self, video_id, publish_at, *, made_for_kids, synthetic):
-        stamp = future_time(publish_at)
-        r = self.session.put('https://www.googleapis.com/youtube/v3/videos', params={'part': 'status'},
-            json={'id': video_id, 'status': {'privacyStatus': 'private', 'publishAt': stamp,
-                 'selfDeclaredMadeForKids': made_for_kids, 'containsSyntheticMedia': synthetic}}, timeout=60)
-        self.check(r)
-        status = r.json().get('status', {})
-        if not status.get('publishAt'):
-            raise RuntimeError('YouTube did not confirm a publishing time; inspect Studio.')
-        return status['publishAt']

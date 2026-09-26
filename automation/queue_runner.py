@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import pipeline as p
 from automation.production import metadata, thumbnail
-from automation.youtube import YouTube, future_time
+from automation.youtube import YouTube
 
 
 def validate_queue(value):
@@ -43,23 +43,8 @@ def validate_queue(value):
                 raise ValueError(f'Explicit {key} true/false is required.')
         if not isinstance(item.get('approved', False), bool) or not isinstance(item.get('enabled', True), bool):
             raise ValueError('approved/enabled must be booleans.')
-        for key in ('publish_at', 'short_publish_at'):
-            if item.get(key) and datetime.fromisoformat(item[key].replace('Z', '+00:00')).tzinfo is None:
-                raise ValueError(f'{key} must include an explicit timezone offset.')
     return value
 
-
-def approval_schedule(item):
-    """Resolve optional approval-form times, falling back to the queue."""
-    result = {}
-    for key, environment in (('publish_at', 'APPROVAL_PUBLISH_AT'),
-                             ('short_publish_at', 'APPROVAL_SHORT_PUBLISH_AT')):
-        value = os.getenv(environment, '').strip() or item.get(key)
-        if not value:
-            raise ValueError(f'{key} is required in the queue or approval form.')
-        future_time(value)
-        result[key] = value
-    return result
 
 
 def choose_item(queue, state):
@@ -74,6 +59,7 @@ def review_digest(item, project):
         with (project / name).open('rb') as stream:
             hashes[name] = hashlib.file_digest(stream, 'sha256').hexdigest()
     return p.fingerprint({'version_folder': project.name, 'files': hashes, 'item': {k: item.get(k) for k in
+        # Retain legacy empty schedule keys so already-approved packages keep their digest.
         ('id', 'publish_at', 'short_publish_at', 'made_for_kids', 'contains_synthetic_media')}})
 
 
@@ -87,31 +73,20 @@ def email_summary(item, project, state, save, kind):
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
     message['Subject'] = f"Video {kind}: {item['id']}"
     message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.{kind}@video-automation.local>"
-    selected_schedule = state.get('schedule') or state.get('approved_schedule') or {
-        key: item.get(key) for key in ('publish_at', 'short_publish_at')}
-    report = {'idea': item['idea'], 'publish_at': selected_schedule.get('publish_at'),
-              'short_publish_at': selected_schedule.get('short_publish_at'),
-              'metadata': json.loads((project/'metadata.json').read_text()),
-              'youtube': {k: {'url': 'https://www.youtube.com/watch?v='+v['id'], 'scheduled_at': v.get('scheduled_at')}
+    report = {'idea': item['idea'], 'metadata': json.loads((project/'metadata.json').read_text()),
+              'youtube': {k: {'url': 'https://www.youtube.com/watch?v='+v['id'], 'privacy_status': 'private'}
                           for k, v in state.get('uploads', {}).items() if v.get('id')},
               'workflow_run': ('https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
                               if os.getenv('GITHUB_RUN_ID') else None}
     report['soundtracks'] = {kind: json.loads((location/'soundtrack.json').read_text())
                             for kind, location in [('long',project),('short',project/'short')]
                             if (location/'soundtrack.json').exists()}
-    display_zone = ZoneInfo(os.getenv('VIDEO_TIMEZONE', 'America/New_York'))
-    report['display_timezone'] = str(display_zone)
-    report['local_publish_times'] = {
-        key: datetime.fromisoformat(selected_schedule[key].replace('Z', '+00:00')).astimezone(display_zone).isoformat()
-        for key in ('publish_at', 'short_publish_at') if selected_schedule.get(key)
-    }
+    if state.get('thumbnail_error'):
+        report['thumbnail_warning'] = state['thumbnail_error']
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approve_id': item['id'], 'approval_code': state['review_digest'],
-                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate'],
-                              'schedule_fields': {
-                                  'publish_at': 'Optional long-video override; use an ISO 8601 time with UTC offset',
-                                  'short_publish_at': 'Optional Short override; use an ISO 8601 time with UTC offset'}}
+                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate']}
     p.save_json(project / 'upload-details.json', report)
     videos = [project/'video.mp4', project/'short/video.mp4']
     attach_videos = sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024
@@ -120,10 +95,7 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, enter the item ID and code above, then choose review_action: '
-         'approve to schedule this version, or regenerate to create a completely new version of this idea. '
-         'When approving, you may enter new long-video and Short publish times in the optional schedule fields; '
-         'leave either blank to use the corresponding time shown in this email. Include the UTC offset, for example '
-         '2026-10-10T17:00:00-04:00. '
+         'approve to upload both videos privately, or regenerate to create a completely new version of this idea. '
          'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt']:
@@ -154,7 +126,7 @@ def apply_regeneration(item, state, save):
     if code in state.get('regeneration_requests', []):
         return  # Retried dispatch resumes that version, not another paid generation.
     if state.get('uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
-        raise ValueError('Regenerate is available before uploading/scheduling. Reconcile existing YouTube uploads first.')
+        raise ValueError('Regenerate is available before uploading. Reconcile existing YouTube uploads first.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Regeneration code is stale or has not been emailed.')
     history = state.get('history', []) + [{k: v for k, v in state.items() if k != 'history'}]
@@ -187,7 +159,7 @@ def process(item, queue, root, states, save):
     if os.getenv('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write(f'project={project}\n')
-    if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'scheduled', 'done'):
+    if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'uploaded', 'scheduled', 'done'):
         state['status'] = 'generating'; save()
         command = [sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
                    '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
@@ -202,7 +174,7 @@ def process(item, queue, root, states, save):
         digest = review_digest(item, project)
         if state.get('review_digest') != digest:
             if state.get('uploads'):
-                raise ValueError('Reviewed files or schedule changed after upload began; reconcile in YouTube Studio first.')
+                raise ValueError('Reviewed files changed after upload began; reconcile in YouTube Studio first.')
             if state.get('email_review') == 'sending':
                 raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
             state['review_digest'] = digest
@@ -210,26 +182,20 @@ def process(item, queue, root, states, save):
         email_summary(item, project, state, save, 'review')
         if os.getenv('REVIEW_ONLY') == '1':
             state['status'] = 'awaiting_approval'; save()
-            print('Review-only run complete. YouTube uploads and scheduling are disabled for this run.')
+            print('Review-only run complete. YouTube uploads are disabled for this run.')
             return
         approval_id = os.getenv('APPROVE_ITEM_ID', '')
         approval_code = os.getenv('APPROVAL_CODE', '')
         if (approval_id or approval_code) and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
             if approval_id != item['id'] or approval_code != digest or state.get('email_review') != 'sent':
                 raise ValueError('Approval does not match the current emailed package. Use the item ID and code from its latest review email.')
-            state['approved_schedule'] = approval_schedule(item)
             state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
             print('Prepared package; waiting for approval through the emailed workflow instructions. No YouTube uploads sent.')
             return
-    if state.get('status') != 'scheduled':
-        proposed = state.get('approved_schedule') or approval_schedule(item)
-        for value in proposed.values():
-            future_time(value)
-        if state.get('schedule') and state['schedule'] != proposed:
-            raise ValueError('Schedule changed after publishing began; reconcile the existing YouTube schedule first.')
-        state.update(status='publishing', schedule=proposed); save()
+    if state.get('status') not in ('uploaded', 'scheduled'):
+        state.update(status='publishing'); save()
         # Compatibility recovery for versions that saved `started` before a
         # definitive HTTP RuntimeError but did not clear it afterward. Network-level
         # ambiguity uses a different exception type and remains blocked for safety.
@@ -247,15 +213,15 @@ def process(item, queue, root, states, save):
             snippet['categoryId'] = str(queue.get('category_id', '27'))
             video_id = yt.upload(location/'video.mp4', snippet, upload, save,
                 made_for_kids=item['made_for_kids'], synthetic=item['contains_synthetic_media'])
-            if kind == 'long' and not upload.get('thumbnail_set'):
-                yt.thumbnail(video_id, project/'thumbnail.jpg'); upload['thumbnail_set'] = True; save()
-        # Both files uploaded privately before scheduling either one.
-        for kind, timekey in [('long', 'publish_at'), ('short', 'short_publish_at')]:
-            upload = state['uploads'][kind]
-            if not upload.get('scheduled_at'):
-                upload['scheduled_at'] = yt.schedule(upload['id'], proposed[timekey],
-                    made_for_kids=item['made_for_kids'], synthetic=item['contains_synthetic_media']); save()
-        state['status'] = 'scheduled'; save()
+            if kind == 'long' and not upload.get('thumbnail_set') and not state.get('thumbnail_error'):
+                try:
+                    yt.thumbnail(video_id, project/'thumbnail.jpg')
+                    upload['thumbnail_set'] = True; save()
+                except RuntimeError as exc:
+                    state['thumbnail_error'] = str(exc)
+                    save()
+                    print('Custom thumbnail could not be applied; continuing with private uploads.', flush=True)
+        state['status'] = 'uploaded'; save()
     email_summary(item, project, state, save, 'confirmation')
     state['status'] = 'done'; state['completed_at'] = datetime.now(timezone.utc).isoformat(); save()
 
