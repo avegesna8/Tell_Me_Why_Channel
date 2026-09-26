@@ -155,6 +155,11 @@ class AutomationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_queue({'email_mode':'review', 'items':[{**item(), 'short_seconds':seconds}]})
 
+    def test_queue_accepts_optional_text_notes(self):
+        validate_queue({'email_mode':'review', 'items':[{**item(), 'notes':'Focus on projector technology.'}]})
+        with self.assertRaisesRegex(ValueError, 'notes must be text'):
+            validate_queue({'email_mode':'review', 'items':[{**item(), 'notes':['projectors']}]})
+
     def test_review_only_blocks_youtube_even_with_matching_approval(self):
         from automation import queue_runner as q
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,8 @@ def validate_queue(value):
         ids.add(item['id'])
         if not isinstance(item.get('idea'), str) or not item['idea'].strip():
             raise ValueError('Each queued item needs an idea.')
+        if 'notes' in item and not isinstance(item['notes'], str):
+            raise ValueError('Optional notes must be text.')
         if not .25 <= item.get('minutes', 3) <= 30:
             raise ValueError('minutes must be 0.25–30.')
         if type(item.get('short_seconds', 55)) is not int or not 30 <= item.get('short_seconds', 55) <= 60:
@@ -145,7 +147,7 @@ def apply_regeneration(item, state, save):
 
 def process(item, queue, root, states, save):
     state = states.setdefault(item['id'], {})
-    signature = p.fingerprint({k: item.get(k) for k in ('idea', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
+    signature = p.fingerprint({k: item.get(k) for k in ('idea', 'notes', 'minutes', 'made_for_kids', 'contains_synthetic_media')})
     if 'short_seconds' in item:
         signature = p.fingerprint({'base': signature, 'short_seconds': item['short_seconds']})
     if state.get('signature') and state['signature'] != signature:
@@ -161,9 +163,12 @@ def process(item, queue, root, states, save):
             output.write(f'project={project}\n')
     if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'scheduled', 'done'):
         state['status'] = 'generating'; save()
-        subprocess.run([sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
-                        '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
-                        '--short-seconds', str(item.get('short_seconds', 55))], check=True)
+        command = [sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
+                   '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
+                   '--short-seconds', str(item.get('short_seconds', 55))]
+        if item.get('notes', '').strip():
+            command.extend(['--notes', item['notes'].strip()])
+        subprocess.run(command, check=True)
         metadata(project)
         thumbnail(project, json.loads((project/'metadata.json').read_text())['long'])
         state['status'] = 'ready'; save()

@@ -31,6 +31,15 @@ class IdeaTests(unittest.TestCase):
             self.assertEqual(p.script_from_idea("What is IMAX?", root).read_text().strip(), "A larger picture.")
             self.assertEqual(post.call_count, 1)
 
+    def test_optional_notes_are_sent_as_structured_script_guidance(self):
+        response = Mock()
+        response.json.return_value = {"status": "completed", "output": [{"content": [
+            {"type": "output_text", "text": json.dumps({"title": "IMAX", "narration": "A bigger view."})}]}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post", return_value=response) as post:
+            p.script_from_idea("What is IMAX?", Path(tmp), 1, "Compare different theater formats.")
+            payload = post.call_args.args[3]
+            self.assertEqual(json.loads(payload["input"])["notes"], "Compare different theater formats.")
+
     def test_bad_input_and_incomplete_output_are_not_saved(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post") as post:
             root = Path(tmp)

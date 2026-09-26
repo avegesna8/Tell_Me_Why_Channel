@@ -18,7 +18,8 @@ Example item (choose real future dates; these are illustrative):
 ```json
 {
   "id": "imax-explained-001",
-  "idea": "What does IMAX mean? Explain how the experience differs between theaters.",
+  "idea": "What does IMAX mean?",
+  "notes": "Explain how the experience differs between theaters. Avoid implying every IMAX uses film or the same screen size.",
   "minutes": 3,
   "enabled": true,
   "made_for_kids": false,
@@ -27,6 +28,11 @@ Example item (choose real future dates; these are illustrative):
   "short_publish_at": "2026-11-11T12:00:00-05:00"
 }
 ```
+
+`idea` is the required topic or question. `notes` is optional free-form guidance
+for the script writer, such as facts or examples to include, desired tone and
+structure, audience context, or claims to avoid. Notes are passed to the writer
+as guidance and are not read aloud verbatim unless that fits the resulting script.
 
 Timezone is America/New_York (Eastern). Supply explicit timestamp offsets:
 -04:00 during daylight saving and -05:00 during standard time. Upload times must
