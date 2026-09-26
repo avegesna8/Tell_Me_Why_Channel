@@ -12,9 +12,12 @@
       "selection_tags": [
         "playful",
         "light",
-        "curious"
+        "curious",
+        "children’s",
+        "funny"
       ],
-      "selection_tags_note": "Initial selection hints; adjust after reviewing a mix."
+      "selection_tags_note": "Initial selection hints; adjust after reviewing a mix.",
+      "usage_note": "Playful, light comedy bed for amusing questions, quirky facts, and childlike curiosity."
     },
     {
       "id": "way_back_home",
@@ -45,6 +48,71 @@
         "mysterious"
       ],
       "selection_tags_note": "Initial selection hints; adjust after reviewing a mix."
+    },
+    {
+      "id": "tiburtina",
+      "file": "music/Tiburtina - Schwartzy.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "auto",
+      "selection_tags": [
+        "ambient",
+        "calm"
+      ],
+      "usage_note": "Gentle, unobtrusive background for calm explanations and reflective sections."
+    },
+    {
+      "id": "sample_mind",
+      "file": "music/Sample Mind - Freedom Trail Studio.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "auto",
+      "selection_tags": [
+        "cinematic",
+        "calm"
+      ],
+      "usage_note": "Calm cinematic bed for polished documentary-style explanations."
+    },
+    {
+      "id": "survival_mode",
+      "file": "music/Survival Mode - Blue Deer Studio.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "auto",
+      "selection_tags": [
+        "upbeat",
+        "electronic"
+      ],
+      "usage_note": "Energetic electronic bed for technology, games, inventions, and forward-moving explanations."
+    },
+    {
+      "id": "candy_apple_town",
+      "file": "music/Candy Apple Town - National Sweetheart.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "auto",
+      "selection_tags": [
+        "suspense",
+        "dark"
+      ],
+      "usage_note": "Dark suspense bed for mysteries, danger, uncertainty, and tense reveals; use selectively."
+    },
+    {
+      "id": "sizzr",
+      "file": "music/Sizzr - Schwartzy.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "sha256": "auto",
+      "selection_tags": [
+        "ambient",
+        "inspirational"
+      ],
+      "usage_note": "Atmospheric, uplifting bed for discovery, wonder, science, nature, and optimistic conclusions."
     }
   ],
   "sfx": [

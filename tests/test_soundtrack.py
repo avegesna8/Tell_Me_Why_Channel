@@ -115,6 +115,21 @@ class SoundtrackTests(unittest.TestCase):
             self.assertEqual(entries[0]['title'],'Fresh Calm Track')
             self.assertEqual(entries[0]['kind'],'music')
 
+    def test_checked_in_catalog_lists_the_managed_music_collection(self):
+        catalog=json.loads(Path('audio/library.json').read_text())
+        by_file={entry['file']:entry for entry in catalog['music']}
+        expected={
+            'music/Tiburtina - Schwartzy.mp3': {'ambient','calm'},
+            'music/Sample Mind - Freedom Trail Studio.mp3': {'cinematic','calm'},
+            'music/Survival Mode - Blue Deer Studio.mp3': {'upbeat','electronic'},
+            'music/Candy Apple Town - National Sweetheart.mp3': {'suspense','dark'},
+            'music/Sizzr - Schwartzy.mp3': {'ambient','inspirational'},
+            'music/Toys Are Us - Blue Deer Studio.mp3': {'children’s','funny'},
+        }
+        for file,tags in expected.items():
+            self.assertIn(file,by_file)
+            self.assertTrue(tags.issubset(set(by_file[file]['selection_tags'])))
+
     def test_cataloged_bucket_asset_can_calculate_hash_and_duration_at_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'sfx').mkdir()
