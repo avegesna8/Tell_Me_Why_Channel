@@ -30,9 +30,10 @@ def align_words(scenes, recognized, audio_duration):
             matches[a + offset] = spoken[b + offset]
     if not script or len(matches) / len(script) < 0.8:
         raise ValueError("Narration does not closely match the storyboard. Review narration and transcript before rendering.")
-    for start, end in ranges:
-        if end == start or sum(i in matches for i in range(start, end)) / (end-start) < 0.65:
-            raise ValueError("A scene could not be aligned reliably. Review narration/transcript.")
+    if any(end == start for start, end in ranges):
+        raise ValueError("Every scene needs spoken narration words.")
+    scene_matches = [sum(i in matches for i in range(start, end)) / (end-start)
+                     for start, end in ranges]
     aligned = [None] * len(script)
     for i, word in matches.items():
         aligned[i] = {"word": script[i], "start": word["start"], "end": min(word["end"], audio_duration)}
@@ -60,7 +61,8 @@ def align_words(scenes, recognized, audio_duration):
     if any(b <= a for a, b in zip(boundaries, boundaries[1:])):
         raise ValueError("Scene boundaries are not increasing; review the narration alignment.")
     return {"boundaries": boundaries, "words": aligned,
-            "matched_fraction": len(matches) / len(script)}
+            "matched_fraction": len(matches) / len(script),
+            "scene_matched_fractions": scene_matches}
 
 
 def transcribe(audio_path, model_name="small"):

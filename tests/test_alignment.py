@@ -21,6 +21,34 @@ class AlignmentTests(unittest.TestCase):
             align_words([{"narration": "Deep beneath the ocean"}],
                         [{"word": "unrelated", "start": 0, "end": 1}], 1)
 
+    def test_weak_short_scene_is_interpolated_when_overall_match_is_good(self):
+        scenes = [{"narration": "one two three four five six seven eight"},
+                  {"narration": "Russell Wilson"}]
+        recognized = [{"word": word, "start": index * .4, "end": index * .4 + .3}
+                      for index, word in enumerate("one two three four five six seven eight mumble".split())]
+        result = align_words(scenes, recognized, 4.2)
+        self.assertEqual(result["scene_matched_fractions"], [1, 0])
+        self.assertEqual(result["matched_fraction"], .8)
+        self.assertGreaterEqual(result["boundaries"][1], result["words"][7]["end"])
+
+    def test_verified_transcript_is_reused_and_scaled_after_resampling(self):
+        import hashlib
+        import json
+        board = {"scenes": [{"narration": "Hello there"}, {"narration": "Good morning"}]}
+        words = [{"word": word, "start": start, "end": start + .2} for word, start in
+                 [("Hello", .1), ("there", .4), ("Good", 1.1), ("morning", 1.5)]]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root/'source.wav'; decoded = root/'decoded.wav'
+            source.write_bytes(b'original audio'); decoded.write_bytes(b'resampled audio')
+            (root/'transcript.json').write_text(json.dumps({
+                "audio_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "model": "small", "words": words}))
+            with patch('narration_alignment.transcribe') as transcribe, patch.object(p, 'duration', return_value=4):
+                result = p.continuous_alignment(board, decoded, root, transcript_audio=source, timestamp_scale=2)
+            transcribe.assert_not_called()
+            self.assertAlmostEqual(result['boundaries'][1], 2.2)
+            self.assertEqual(result['words'][-1]['end'], 3.4)
+
     def test_one_generation_for_whole_script(self):
         from test_pipeline import board
         from test_runpod_tts import wav_bytes

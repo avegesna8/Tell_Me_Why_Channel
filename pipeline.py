@@ -754,11 +754,14 @@ def styled_captions(srt_text, width, height, words=None):
     return header + "".join(events)
 
 
-def continuous_alignment(board, audio, directory):
+def continuous_alignment(board, audio, directory, *, transcript_audio=None, timestamp_scale=1.0):
     from narration_alignment import align_words, transcribe
     model = os.getenv("WHISPER_MODEL", "small")
+    if not math.isfinite(timestamp_scale) or timestamp_scale <= 0:
+        raise ValueError("Transcript timestamp scale must be positive.")
     signature = fingerprint({"audio": hashlib.sha256(audio.read_bytes()).hexdigest(),
-                             "scenes": [s["narration"] for s in board["scenes"]], "model": model, "version": 1})
+                             "scenes": [s["narration"] for s in board["scenes"]], "model": model,
+                             "timestamp_scale": timestamp_scale, "version": 2})
     path = directory / "alignment.json"
     if path.exists():
         cached = json.loads(path.read_text())
@@ -767,10 +770,12 @@ def continuous_alignment(board, audio, directory):
             return cached
     transcript_path = directory / "transcript.json"
     audio_sha = hashlib.sha256(audio.read_bytes()).hexdigest()
+    source_sha = hashlib.sha256(Path(transcript_audio).read_bytes()).hexdigest() if transcript_audio else audio_sha
     transcript = json.loads(transcript_path.read_text()) if transcript_path.exists() else {}
-    if transcript.get("audio_sha256") == audio_sha and transcript.get("model") == model:
+    if transcript.get("audio_sha256") == source_sha and transcript.get("model") == model:
         print("Reusing narration quality transcript", flush=True)
-        words = transcript.get("words", [])
+        words = [{**word, "start": word["start"] * timestamp_scale, "end": word["end"] * timestamp_scale}
+                 for word in transcript.get("words", [])]
     else:
         words = transcribe(audio, model)
         save_json(transcript_path, {"audio_sha256": audio_sha, "model": model, "words": words})
@@ -815,10 +820,12 @@ def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music
     if continuous:
         # Keep one decoded track for alignment and final mux; never split narration.
         decoded = clips / "narration.wav"
+        source_audio = full_audio
         speed_filter = ["-af", f"atempo={narration_speed}"] if narration_speed != 1 else []
-        run_ffmpeg(["-i", str(full_audio), *speed_filter, "-ar", "48000", "-ac", "2", str(decoded)])
+        run_ffmpeg(["-i", str(source_audio), *speed_filter, "-ar", "48000", "-ac", "2", str(decoded)])
         full_audio = decoded
-        alignment = continuous_alignment(board, decoded, directory)
+        alignment = continuous_alignment(board, decoded, directory, transcript_audio=source_audio,
+                                         timestamp_scale=1 / narration_speed)
         boundaries = [round(t * fps) for t in alignment["boundaries"]]
         boundaries[-1] = math.ceil(alignment["boundaries"][-1] * fps)
         if any(b <= a for a, b in zip(boundaries, boundaries[1:])):
