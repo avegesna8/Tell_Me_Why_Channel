@@ -49,6 +49,19 @@ def validate_queue(value):
     return value
 
 
+def approval_schedule(item):
+    """Resolve optional approval-form times, falling back to the queue."""
+    result = {}
+    for key, environment in (('publish_at', 'APPROVAL_PUBLISH_AT'),
+                             ('short_publish_at', 'APPROVAL_SHORT_PUBLISH_AT')):
+        value = os.getenv(environment, '').strip() or item.get(key)
+        if not value:
+            raise ValueError(f'{key} is required in the queue or approval form.')
+        future_time(value)
+        result[key] = value
+    return result
+
+
 def choose_item(queue, state):
     return next((i for i in queue['items'] if i.get('enabled', True)
                  and state.get(i['id'], {}).get('status') != 'done'), None)
@@ -74,7 +87,10 @@ def email_summary(item, project, state, save, kind):
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
     message['Subject'] = f"Video {kind}: {item['id']}"
     message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.{kind}@video-automation.local>"
-    report = {'idea': item['idea'], 'publish_at': item.get('publish_at'), 'short_publish_at': item.get('short_publish_at'),
+    selected_schedule = state.get('schedule') or state.get('approved_schedule') or {
+        key: item.get(key) for key in ('publish_at', 'short_publish_at')}
+    report = {'idea': item['idea'], 'publish_at': selected_schedule.get('publish_at'),
+              'short_publish_at': selected_schedule.get('short_publish_at'),
               'metadata': json.loads((project/'metadata.json').read_text()),
               'youtube': {k: {'url': 'https://www.youtube.com/watch?v='+v['id'], 'scheduled_at': v.get('scheduled_at')}
                           for k, v in state.get('uploads', {}).items() if v.get('id')},
@@ -86,13 +102,16 @@ def email_summary(item, project, state, save, kind):
     display_zone = ZoneInfo(os.getenv('VIDEO_TIMEZONE', 'America/New_York'))
     report['display_timezone'] = str(display_zone)
     report['local_publish_times'] = {
-        key: datetime.fromisoformat(item[key].replace('Z', '+00:00')).astimezone(display_zone).isoformat()
-        for key in ('publish_at', 'short_publish_at') if item.get(key)
+        key: datetime.fromisoformat(selected_schedule[key].replace('Z', '+00:00')).astimezone(display_zone).isoformat()
+        for key in ('publish_at', 'short_publish_at') if selected_schedule.get(key)
     }
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approve_id': item['id'], 'approval_code': state['review_digest'],
-                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate']}
+                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate'],
+                              'schedule_fields': {
+                                  'publish_at': 'Optional long-video override; use an ISO 8601 time with UTC offset',
+                                  'short_publish_at': 'Optional Short override; use an ISO 8601 time with UTC offset'}}
     p.save_json(project / 'upload-details.json', report)
     videos = [project/'video.mp4', project/'short/video.mp4']
     attach_videos = sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024
@@ -102,6 +121,9 @@ def email_summary(item, project, state, save, kind):
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, enter the item ID and code above, then choose review_action: '
          'approve to schedule this version, or regenerate to create a completely new version of this idea. '
+         'When approving, you may enter new long-video and Short publish times in the optional schedule fields; '
+         'leave either blank to use the corresponding time shown in this email. Include the UTC offset, for example '
+         '2026-10-10T17:00:00-04:00. '
          'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt']:
@@ -191,15 +213,16 @@ def process(item, queue, root, states, save):
         if (approval_id or approval_code) and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
             if approval_id != item['id'] or approval_code != digest or state.get('email_review') != 'sent':
                 raise ValueError('Approval does not match the current emailed package. Use the item ID and code from its latest review email.')
+            state['approved_schedule'] = approval_schedule(item)
             state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
             print('Prepared package; waiting for approval through the emailed workflow instructions. No YouTube uploads sent.')
             return
     if state.get('status') != 'scheduled':
-        for key in ('publish_at', 'short_publish_at'):
-            future_time(item[key])
-        proposed = {k: item[k] for k in ('publish_at', 'short_publish_at')}
+        proposed = state.get('approved_schedule') or approval_schedule(item)
+        for value in proposed.values():
+            future_time(value)
         if state.get('schedule') and state['schedule'] != proposed:
             raise ValueError('Schedule changed after publishing began; reconcile the existing YouTube schedule first.')
         state.update(status='publishing', schedule=proposed); save()
@@ -216,7 +239,7 @@ def process(item, queue, root, states, save):
         for kind, timekey in [('long', 'publish_at'), ('short', 'short_publish_at')]:
             upload = state['uploads'][kind]
             if not upload.get('scheduled_at'):
-                upload['scheduled_at'] = yt.schedule(upload['id'], item[timekey],
+                upload['scheduled_at'] = yt.schedule(upload['id'], proposed[timekey],
                     made_for_kids=item['made_for_kids'], synthetic=item['contains_synthetic_media']); save()
         state['status'] = 'scheduled'; save()
     email_summary(item, project, state, save, 'confirmation')

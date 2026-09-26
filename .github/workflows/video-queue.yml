@@ -21,6 +21,14 @@ on:
         description: 'Paste the approval code from that same review email'
         required: false
         type: string
+      publish_at:
+        description: 'Optional long-video time, e.g. 2026-10-10T17:00:00-04:00'
+        required: false
+        type: string
+      short_publish_at:
+        description: 'Optional Short time, e.g. 2026-10-11T12:00:00-04:00'
+        required: false
+        type: string
   schedule:
     - cron: '17 13 * * *'
 concurrency:
@@ -39,6 +47,8 @@ jobs:
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVE_ITEM_ID: ${{ inputs.approve_id }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
+      APPROVAL_PUBLISH_AT: ${{ inputs.publish_at }}
+      APPROVAL_SHORT_PUBLISH_AT: ${{ inputs.short_publish_at }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'

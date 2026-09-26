@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from datetime import datetime, timezone, timedelta
-from automation.queue_runner import choose_item, validate_queue, process, email_summary
+from automation.queue_runner import approval_schedule, choose_item, validate_queue, process, email_summary
 from automation.youtube import YouTube, future_time
 
 
@@ -30,6 +30,20 @@ class AutomationTests(unittest.TestCase):
         for items in [[item(), item()], [{**item(), 'id': '../secrets'}]]:
             with self.assertRaises(ValueError):
                 validate_queue({'email_mode': 'review', 'items': items})
+
+    def test_approval_schedule_overrides_queue_times_independently(self):
+        queued = item()
+        with patch.dict('os.environ', {'APPROVAL_PUBLISH_AT': '2099-02-01T09:30:00-05:00',
+                                       'APPROVAL_SHORT_PUBLISH_AT': ''}, clear=False):
+            self.assertEqual(approval_schedule(queued), {
+                'publish_at': '2099-02-01T09:30:00-05:00',
+                'short_publish_at': queued['short_publish_at']})
+
+    def test_approval_schedule_requires_a_time_from_form_or_queue(self):
+        queued = item(); queued.pop('publish_at')
+        with patch.dict('os.environ', {'APPROVAL_PUBLISH_AT': '', 'APPROVAL_SHORT_PUBLISH_AT': ''}, clear=False):
+            with self.assertRaisesRegex(ValueError, 'publish_at is required'):
+                approval_schedule(queued)
 
     def test_schedule_requires_future_aware_time(self):
         for value in ['2020-01-01T00:00:00Z', '2099-01-01T12:00:00']:

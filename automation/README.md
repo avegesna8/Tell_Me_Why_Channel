@@ -46,7 +46,10 @@ Change it before enabling; Actions schedules can be delayed.
 thumbnail, scripts and metadata as attachments to abhinn.varma@gmail.com. The
 email links to the workflow run containing video artifacts. It then waits:
 open the approval workflow link in the email, select **Run workflow**, and paste
-the provided `approve_id` and `approval_code`. GitHub sign-in and workflow-run
+the provided `approve_id` and `approval_code`. The form also lets you optionally
+override the long-video and Short publication times before approval. Use ISO 8601
+with an explicit Eastern offset, such as `2026-10-10T17:00:00-04:00`; a blank field
+uses that video's time from `video_queue.json`. GitHub sign-in and workflow-run
 permission are required. The code binds approval to the exact videos, scripts,
 metadata, thumbnail, audience declarations and publishing times. Edits invalidate
 approval and cause a new review email. The legacy queue `approved` field is ignored.
