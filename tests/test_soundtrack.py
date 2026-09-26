@@ -130,6 +130,24 @@ class SoundtrackTests(unittest.TestCase):
             self.assertIn(file,by_file)
             self.assertTrue(tags.issubset(set(by_file[file]['selection_tags'])))
 
+    def test_checked_in_catalog_lists_the_managed_effect_collection(self):
+        catalog=json.loads(Path('audio/library.json').read_text())
+        by_file={entry['file']:entry for entry in catalog['sfx']}
+        expected={
+            'sfx/Camera Shutter.mp3':'camera shutter',
+            'sfx/Clock Ticking Short.mp3':'clock ticking',
+            'sfx/Discovery Sparkle.mp3':'discovery sparkle',
+            'sfx/Mechanical Switch Click.mp3':'mechanical switch click',
+            'sfx/Page Turn.mp3':'page turn',
+            'sfx/Short Suspense Riser.mp3':'short suspense riser',
+            'sfx/Soft Cinematic Boom.mp3':'soft cinematic boom',
+            'sfx/Soft Discovery Chime.mp3':'soft discovery chime',
+        }
+        for file,purpose in expected.items():
+            self.assertIn(file,by_file)
+            self.assertEqual(by_file[file]['purpose'],purpose)
+            self.assertTrue(by_file[file]['usage_note'])
+
     def test_cataloged_bucket_asset_can_calculate_hash_and_duration_at_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'sfx').mkdir()

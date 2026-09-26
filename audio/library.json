@@ -176,6 +176,102 @@
       "sha256": "e0c777e35466f86e7f4dc0c069814179a40e94ad63859ab25c98a01c3687b02b",
       "start_seconds": 0,
       "clip_seconds": 1.0
+    },
+    {
+      "id": "camera_shutter",
+      "file": "sfx/Camera Shutter.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "camera shutter",
+      "usage_note": "Use for photography, films, celebrities, historical images, or a visual snapshot; avoid unrelated transitions.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.0
+    },
+    {
+      "id": "clock_ticking",
+      "file": "sfx/Clock Ticking Short.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "clock ticking",
+      "usage_note": "Use briefly for time pressure, waiting, deadlines, countdowns, or timelines; avoid leaving it under long narration.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.5
+    },
+    {
+      "id": "discovery_sparkle",
+      "file": "sfx/Discovery Sparkle.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "discovery sparkle",
+      "usage_note": "Use for wonder, an elegant discovery, space, nature, or a light positive reveal.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.2
+    },
+    {
+      "id": "mechanical_switch",
+      "file": "sfx/Mechanical Switch Click.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "mechanical switch click",
+      "usage_note": "Use for machines, controls, engineering, inventions, activation, or a physical mechanism.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 0.8
+    },
+    {
+      "id": "page_turn",
+      "file": "sfx/Page Turn.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "page turn",
+      "usage_note": "Use for books, research, documents, history, timelines, or a clear chapter change.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.2
+    },
+    {
+      "id": "suspense_riser",
+      "file": "sfx/Short Suspense Riser.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "short suspense riser",
+      "usage_note": "Use immediately before a meaningful surprising or tense reveal; do not use for ordinary transitions.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 2.5
+    },
+    {
+      "id": "soft_cinematic_boom",
+      "file": "sfx/Soft Cinematic Boom.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "soft cinematic boom",
+      "usage_note": "Use for a major answer, scale comparison, consequential fact, or strong reveal; use sparingly.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.5
+    },
+    {
+      "id": "discovery_chime",
+      "file": "sfx/Soft Discovery Chime.mp3",
+      "source": "YouTube Audio Library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "soft discovery chime",
+      "usage_note": "Use for a clear answer, important fact, realization, or positive informational reveal.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.2
     }
   ],
   "defaults": {
