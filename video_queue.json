@@ -1,7 +1,19 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [],
+  "items": [
+    {
+      "id": "test-IMAX",
+      "idea": "What does IMAX actually mean?",
+      "notes": "Yeah mabyue liek title you know maybe talk about like how imax is so expensive now days and is it worht the price adn talk about what imax is and famous peopel who use imax and why it is better than regular screens and if it is worth the money.",
+      "minutes": 1,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
+    }
+
+  ],
   "timezone": "America/New_York",
   "notification_email": "abhinn.varma@gmail.com"
 }
