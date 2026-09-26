@@ -54,7 +54,8 @@ def choose_item(queue, state):
 
 def review_digest(item, project):
     files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg', 'script.txt', 'short/script.txt', 'script-quality.json']
-    files += [name for name in ('speech-text.txt', 'speech-preparation.json') if (project / name).exists()]
+    files += [name for name in ('speech-text.txt', 'speech-preparation.json', 'production-review.json',
+                                     'short/production-review.json') if (project / name).exists()]
     hashes = {}
     for name in files:
         with (project / name).open('rb') as stream:
@@ -102,7 +103,8 @@ def email_summary(item, project, state, save, kind):
          'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
-                 project/'script-quality.json', project/'speech-text.txt', project/'speech-preparation.json']:
+                 project/'script-quality.json', project/'speech-text.txt', project/'speech-preparation.json',
+                 project/'production-review.json', project/'short/production-review.json']:
         if not file.exists():
             continue
         mime = ('image', 'jpeg') if file.suffix == '.jpg' else ('application', 'json') if file.suffix == '.json' else ('text', 'plain')

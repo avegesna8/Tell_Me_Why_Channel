@@ -45,8 +45,12 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True):
     spoken, changes = normalize_spoken(script)
     applied, ignored = [], []
     if phoneme_annotations:
+        seen = set()
         for entry in sorted(pronunciations or [], key=lambda item: len(str(item.get("text", ""))), reverse=True):
             written = str(entry.get("text", "")).strip(); cmu = str(entry.get("cmu", "")).strip().upper()
+            if written.casefold() in seen:
+                continue
+            seen.add(written.casefold())
             if not written or any(char in written for char in "<>|") or not valid_cmu(cmu):
                 ignored.append({"entry": entry, "reason": "invalid pronunciation annotation"}); continue
             pattern = re.compile(r"(?<!\w)" + re.escape(written) + r"(?!\w)")

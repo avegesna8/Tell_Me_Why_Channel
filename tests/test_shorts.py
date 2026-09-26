@@ -44,6 +44,7 @@ class ShortsTests(unittest.TestCase):
                 value = board(); value['aspect_ratio'] = aspect
                 path.write_text(json.dumps(value))
             with patch.object(s, 'short_script', return_value=script), patch.object(s.p, 'plan', side_effect=plan), \
+                 patch('production_review.review_storyboard', side_effect=lambda value, directory: value), \
                  patch.object(s.p, 'generate_assets') as assets, patch.object(s.p, 'audio_asset', return_value=short/'narration.wav'), \
                  patch.object(s.p, 'duration', side_effect=[65, 55]), patch.object(s.p, 'render') as render:
                 s.create_short(board(), root, image_reference=Path('characters/updated_base.png'))

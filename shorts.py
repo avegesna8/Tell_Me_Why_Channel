@@ -87,6 +87,11 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
     board = p.validate_board(json.loads(path.read_text()))
     if board['aspect_ratio'] != '9:16' or script.split() != ' '.join(s['narration'] for s in board['scenes']).split():
         raise ValueError('Short storyboard differs from script or is not vertical. Remove short/storyboard.json to replan.')
+    from production_review import review_storyboard
+    reviewed_board = review_storyboard(board, directory)
+    if reviewed_board != board:
+        board = reviewed_board
+        p.save_json(path, board)
     p.generate_assets(board, directory / 'assets', voice, runpod=runpod,
                       narration_mode='continuous', image_reference=image_reference)
     raw_duration = p.duration(p.audio_asset(directory / 'assets', 'narration'))

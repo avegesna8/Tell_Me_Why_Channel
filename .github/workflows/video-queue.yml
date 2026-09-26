@@ -99,6 +99,8 @@ jobs:
             ${{ steps.production.outputs.project }}/script-quality.json
             ${{ steps.production.outputs.project }}/speech-text.txt
             ${{ steps.production.outputs.project }}/speech-preparation.json
+            ${{ steps.production.outputs.project }}/production-review.json
+            ${{ steps.production.outputs.project }}/short/production-review.json
             ${{ steps.production.outputs.project }}/short/script.txt
             ${{ steps.production.outputs.project }}/metadata.json
             ${{ steps.production.outputs.project }}/thumbnail.jpg

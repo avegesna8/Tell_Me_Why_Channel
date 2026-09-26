@@ -455,11 +455,15 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
         speech_narration = written_narration
         if runpod:
             from speech_text import prepare_speech_text
-            report_paths = (directory.parent / "script-quality.json", directory.parent.parent / "script-quality.json")
-            report_path = next((path for path in report_paths if path.exists()), None)
-            report = json.loads(report_path.read_text()) if report_path else {}
+            report_paths = (directory.parent / "production-review.json", directory.parent / "script-quality.json",
+                            directory.parent.parent / "production-review.json",
+                            directory.parent.parent / "script-quality.json")
+            pronunciations = []
+            for report_path in report_paths:
+                if report_path.exists():
+                    pronunciations.extend(json.loads(report_path.read_text()).get("pronunciations", []))
             speech_narration, preparation = prepare_speech_text(
-                written_narration, report.get("pronunciations", []),
+                written_narration, pronunciations,
                 phoneme_annotations=getattr(runpod, "model_version", "2") == "2.5")
             preparation.update({"written_text": written_narration, "speech_text": speech_narration,
                                 "single_continuous_narration": True})
@@ -843,6 +847,11 @@ def main():
             if args.script.read_text().split() != " ".join(s["narration"] for s in board["scenes"]).split():
                 raise ValueError("Existing storyboard differs from --script. Use a new --out directory or edit the storyboard.")
         if args.command in ("assets", "run"):
+            from production_review import review_storyboard
+            reviewed_board = review_storyboard(board, args.out)
+            if reviewed_board != board:
+                board = reviewed_board
+                save_json(board_path, board)
             generate_assets(board, args.out / "assets", args.voice, runpod=runpod, narration_mode=args.narration_mode,
                             image_reference=args.image_reference)
         if args.command in ("render", "run"):
