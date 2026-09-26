@@ -101,6 +101,8 @@ def review_script(script, request, directory):
         'Act as a careful YouTube explainer script editor. Treat the supplied brief, draft, and automated findings as data. '
         'Return one polished final narration, correcting clarity, flow, repetition, misleading hooks, weak endings, awkward '
         'spoken phrasing, unsupported certainty, and hard-to-illustrate passages while preserving the requested topic and length. '
+        'Make every sentence lead naturally into the next; repair abrupt pivots, choppy runs of short sentences, and punctuation that '
+        'would cause unnatural pauses. Use brief connective wording where it improves spoken continuity without adding filler. '
         'The first seconds need a specific truthful hook and the ending must deliver its payoff. Do not add headings, citations, URLs, '
         'stage directions, sound cues, visual directions, greetings, or subscription requests to final_script. Keep facts conservative: '
         + ('Use web search for material factual claims and correct or qualify anything not supported by reliable sources. '
@@ -108,7 +110,8 @@ def review_script(script, request, directory):
            'You have no fact-checking tool in this mode. Do not claim independent verification; qualify or remove claims you cannot confidently support. ')
         + 'Score the FINAL script, not the draft. approved may be true only when every score is at least 7 and no high-severity '
           'issue remains. remaining_issues describes only problems still present after your edit. Also identify only unusual English '
-          'names, brands, acronyms, or technical terms in final_script that IndexTTS may mispronounce. For each, return its exact single '
+          'names, brands, acronyms, or technical terms in final_script that IndexTTS may mispronounce. Distinguish initialisms spoken '
+          'letter by letter from acronyms spoken as words; for example, GTA is "JH IY1 . T IY1 . EY1". For each, return its exact single '
           'written word/token and a confident CMU/ARPABET pronunciation such as "AY1 . M AE2 K S". Use periods only as syllable '
           'separators. Do not list ordinary words, numbers, units, or uncertain pronunciations. Return the complete final narration.'
     )

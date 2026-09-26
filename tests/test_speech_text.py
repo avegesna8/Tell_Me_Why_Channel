@@ -17,3 +17,15 @@ class SpeechTextTests(unittest.TestCase):
     def test_validates_arpabet(self):
         self.assertTrue(valid_cmu("AY1 . M AE2 K S"))
         self.assertFalse(valid_cmu("INVALID"))
+
+class SpokenFormattingTests(unittest.TestCase):
+    def test_currency_magnitude_places_dollars_last(self):
+        value, report = prepare_speech_text("It cost $25 million, then another $1.5 billion and $1.")
+        self.assertIn("twenty-five million dollars", value)
+        self.assertIn("one point five billion dollars", value)
+        self.assertIn("one dollar", value)
+        self.assertNotIn("dollars million", value)
+
+    def test_common_initialism_is_spelled_automatically(self):
+        value, report = prepare_speech_text("GTA 5 became a major release.")
+        self.assertIn("<GTA|JH IY1 . T IY1 . EY1> 5", value)

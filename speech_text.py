@@ -10,8 +10,18 @@ def _number(value):
     if n < 20: return ones[n]
     if n < 100: return tens[n // 10] + ("-" + ones[n % 10] if n % 10 else "")
     if n < 1000: return ones[n // 100] + " hundred" + (" " + _number(n % 100) if n % 100 else "")
-    if n < 10000: return _number(n // 1000) + " thousand" + (" " + _number(n % 1000) if n % 1000 else "")
+    for size, label in ((1_000_000_000, "billion"), (1_000_000, "million"), (1000, "thousand")):
+        if n >= size:
+            return _number(str(n // size)) + " " + label + (" " + _number(str(n % size)) if n % size else "")
     return value
+
+def _quantity(value):
+    clean = value.replace(",", "")
+    if "." not in clean or set(clean.split(".", 1)[1]) == {"0"}:
+        return _number(clean.split(".", 1)[0])
+    whole, fraction = clean.split(".", 1)
+    digits = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+    return _number(whole) + " point " + " ".join(digits[int(digit)] for digit in fraction)
 
 def normalize_spoken(text):
     """Expand common ambiguous written forms conservatively for English TTS."""
@@ -23,8 +33,12 @@ def normalize_spoken(text):
             if value != match.group(0): changes.append({"written": match.group(0), "spoken": value})
             return value
         text = re.sub(pattern, repl, text, flags=re.I)
-    replace(r"\$(\d{1,4})(?![\d.])", lambda m: _number(m.group(1)) + (" dollar" if m.group(1) == "1" else " dollars"))
-    replace(r"\b(\d{1,4})%", lambda m: _number(m.group(1)) + " percent")
+    def currency(match):
+        amount, magnitude = match.group(1), (match.group(2) or "").lower()
+        singular = not magnitude and float(amount.replace(",", "")) == 1
+        return _quantity(amount) + (" " + magnitude if magnitude else "") + (" dollar" if singular else " dollars")
+    replace(r"\$([0-9][0-9,]*(?:\.[0-9]+)?)\s*(thousand|million|billion|trillion)?\b", currency)
+    replace(r"\b([0-9][0-9,]*(?:\.[0-9]+)?)%", lambda m: _quantity(m.group(1)) + " percent")
     units = {"mm": "millimeter", "cm": "centimeter", "km": "kilometer", "kg": "kilogram", "mph": "mile per hour", "fps": "frame per second", "hz": "hertz"}
     def unit(match):
         count = int(match.group(1)); name = units[match.group(2).lower()]
@@ -45,8 +59,12 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True):
     spoken, changes = normalize_spoken(script)
     applied, ignored = [], []
     if phoneme_annotations:
+        automatic = [{"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"}]
+        automatic = [entry for entry in automatic
+                     if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken)]
+        entries = list(pronunciations or []) + automatic
         seen = set()
-        for entry in sorted(pronunciations or [], key=lambda item: len(str(item.get("text", ""))), reverse=True):
+        for entry in sorted(entries, key=lambda item: len(str(item.get("text", ""))), reverse=True):
             written = str(entry.get("text", "")).strip(); cmu = str(entry.get("cmu", "")).strip().upper()
             if written.casefold() in seen:
                 continue

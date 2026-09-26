@@ -61,9 +61,11 @@ def review_storyboard(board, directory):
             'redivide narration. Do not invent claims beyond the narration. Use zoom only where it adds meaning and keep most scenes '
             'still. Use low quality for simple connective cutaways and medium for key detailed scenes. approved may be true only when '
             'all FINAL scores are at least 7 and no high-severity issue remains. A serious spoken-language or factual problem that '
-            'cannot be fixed through visuals must remain high severity so the run stops before audio and image generation. '
+            'cannot be fixed through visuals must remain high severity so the run stops before audio and image generation. Flag '
+            'abrupt sentence transitions, choppy phrasing, or punctuation likely to create unnatural delivery as narration issues. '
             'Identify only unusual English names, brands, acronyms, or technical terms in the narration that IndexTTS may '
-            'mispronounce. Return the exact single written token and a confident CMU/ARPABET pronunciation; omit ordinary words, '
+            'mispronounce. Distinguish letter-by-letter initialisms such as GTA from acronyms spoken as words. Return the exact single '
+            'written token and a confident CMU/ARPABET pronunciation; omit ordinary words, '
             'numbers, units, and uncertain entries.'),
         'input': json.dumps(board, ensure_ascii=False),
         'text': {'format': {'type': 'json_schema', 'name': 'production_review', 'strict': True, 'schema': schema}},
