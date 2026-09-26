@@ -208,7 +208,7 @@ def mix_video(project, entries, plan):
     current = file_hash(video)
     by_id = {e['id']:e for e in entries}
     selected = {c['effect_id'] for c in plan['effects']} | ({plan['music_id']} if plan['music_id'] else set())
-    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':3})
+    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':4})
     if current == stamp.get('output_hash') and signature == stamp.get('signature'):
         return
     # Keep a dry source and record both sides of replacement for interruption-safe retries.
@@ -222,22 +222,31 @@ def mix_video(project, entries, plan):
     fade = min(1.5,seconds/3)
     args = ['-i',str(dry)]
     fmt = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo'
-    filters = [f'[0:a]{fmt}[voice]']
+    intro_cue = next((cue for cue in plan['effects'] if cue.get('reserved_intro')), None)
+    duck_seconds = min(.8, intro_cue['clip_seconds']) if intro_cue else 0
+    voice_mix = (f"volume='if(lt(t,{duck_seconds}),0.72,1)':eval=frame," if intro_cue else '')
+    filters = [f'[0:a]{voice_mix}{fmt}[voice]']
     inputs = ['[voice]']
     next_input = 1
     if plan['music_id']:
         args += ['-stream_loop','-1','-i',str(by_id[plan['music_id']]['path'])]
         next_input = 2
-        filters = [f'[0:a]{fmt},asplit=2[voice][key]',
+        filters = [f'[0:a]{voice_mix}{fmt},asplit=2[voice][key]',
             f'[1:a]atrim=duration={seconds},asetpts=PTS-STARTPTS,loudnorm=I=-28:TP=-4:LRA=7,{fmt},'
             f'afade=t=in:d={min(.7,seconds/3)},afade=t=out:st={seconds-fade}:d={fade}[music]',
             '[music][key]sidechaincompress=threshold=0.025:ratio=6:attack=20:release=350:makeup=1[bed]']
         inputs.append('[bed]')
     for i,cue in enumerate(plan['effects'],next_input):
         args += ['-i',str(by_id[cue['effect_id']]['path'])]
-        length = cue['clip_seconds']; ramp=min(.08,length/3)
-        filters.append(f'[{i}:a]atrim=start={cue["source_start"]}:duration={length},asetpts=PTS-STARTPTS,'
-            f'loudnorm=I=-26:TP=-6:LRA=7,{fmt},afade=t=in:d={ramp},'
+        length = cue['clip_seconds']; intro = cue.get('reserved_intro', False)
+        ramp = min(.025 if intro else .08, length/3)
+        trim = f'atrim=start={cue["source_start"]},'
+        if intro:
+            # User-supplied stingers often contain encoder padding or a quiet lead-in.
+            trim += 'silenceremove=start_periods=1:start_duration=0.015:start_threshold=-45dB,'
+        trim += f'atrim=duration={length},asetpts=PTS-STARTPTS,'
+        level = 'loudnorm=I=-15:TP=-1:LRA=7' if intro else 'loudnorm=I=-26:TP=-6:LRA=7'
+        filters.append(f'[{i}:a]{trim}{level},{fmt},afade=t=in:d={ramp},'
             f'afade=t=out:st={length-ramp}:d={ramp},adelay={round(cue["at_seconds"]*1000)}:all=1[fx{i}]')
         inputs.append(f'[fx{i}]')
     filters.append(''.join(inputs)+f'amix=inputs={len(inputs)}:duration=first:normalize=0,'
@@ -266,7 +275,9 @@ def mix_video(project, entries, plan):
     p.save_json(stamp_path,{'signature':signature,'dry_hash':file_hash(dry),
                           'previous_output_hash':current,'output_hash':file_hash(output)})
     p.save_json(project/'soundtrack.json', {**plan,'music_file':by_id[plan['music_id']]['file'] if plan['music_id'] else None,
-        'mix':{'music_lufs':-28,'effects_lufs':-26,'ducking':bool(plan['music_id']),'duration_seconds':seconds}})
+        'mix':{'music_lufs':-28,'effects_lufs':-26,'intro_effect_lufs':-15 if intro_cue else None,
+               'intro_voice_duck':0.72 if intro_cue else None,'intro_duck_seconds':duck_seconds,
+               'ducking':bool(plan['music_id']) or bool(intro_cue),'duration_seconds':seconds}})
     output.replace(video)
     print(f'Added library soundtrack: {plan["music_id"]}, {len(plan["effects"])} effects.',flush=True)
 

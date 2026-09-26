@@ -165,6 +165,13 @@ class ReservedIntroTests(unittest.TestCase):
             self.assertAlmostEqual(p.duration(root/'video.mp4'), 2, delta=.1)
             saved = json.loads((root/'soundtrack.json').read_text())
             self.assertTrue(saved['effects'][0]['reserved_intro'])
+            self.assertEqual(saved['mix']['intro_effect_lufs'], -15)
+            self.assertEqual(saved['mix']['intro_voice_duck'], .72)
+            levels = subprocess.run(['ffmpeg', '-hide_banner', '-i', str(root/'video.mp4'), '-vn',
+                                     '-af', 'volumedetect', '-f', 'null', '-'],
+                                    capture_output=True, text=True, check=True).stderr
+            mean = float(__import__('re').search(r'mean_volume: ([-0-9.]+) dB', levels).group(1))
+            self.assertGreater(mean, -23)
             frame = subprocess.run(['ffmpeg', '-v', 'error', '-ss', '0', '-i', str(root/'video.mp4'),
                                     '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
                                    capture_output=True, check=True).stdout
