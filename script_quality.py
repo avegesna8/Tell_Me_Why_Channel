@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 2
+VERSION = 3
 
 
 def deterministic_findings(script, minutes):
@@ -103,7 +103,9 @@ def review_script(script, request, directory):
         'spoken phrasing, unsupported certainty, and hard-to-illustrate passages while preserving the requested topic and length. '
         'Make every sentence lead naturally into the next; repair abrupt pivots, choppy runs of short sentences, and punctuation that '
         'would cause unnatural pauses. Use brief connective wording where it improves spoken continuity without adding filler. '
-        'The first seconds need a specific truthful hook and the ending must deliver its payoff. Do not add headings, citations, URLs, '
+        'The first seconds need a specific truthful hook and the ending must deliver its payoff. Preserve or repair the exact final '
+        'conclusion so it answers with “And now you know why …” plus the central question’s subject, followed only by '
+        '“I’ll see you next time.” Do not add headings, citations, URLs, '
         'stage directions, sound cues, visual directions, greetings, or subscription requests to final_script. Keep facts conservative: '
         + ('Use web search for material factual claims and correct or qualify anything not supported by reliable sources. '
            if web_enabled else

@@ -43,6 +43,8 @@ class IdeaTests(unittest.TestCase):
             p.script_from_idea("What is IMAX?", Path(tmp), 1, "Compare different theater formats.")
             payload = post.call_args.args[3]
             self.assertEqual(json.loads(payload["input"])["notes"], "Compare different theater formats.")
+            self.assertIn("And now you know why", payload["instructions"])
+            self.assertIn("I’ll see you next time", payload["instructions"])
 
     def test_bad_input_and_incomplete_output_are_not_saved(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post") as post:
