@@ -25,8 +25,24 @@ class YouTube:
     @staticmethod
     def check(response):
         if not response.ok:
-            # Do not log access tokens, upload-session URLs or provider-echoed data.
-            raise RuntimeError(f'YouTube/OAuth request failed: HTTP {response.status_code}. Check credentials, quota and channel permissions.')
+            # Only expose Google's machine-readable reason/status allowlist. Never echo
+            # provider messages, request URLs, access tokens or upload-session URLs.
+            details = []
+            try:
+                error = response.json().get('error', {})
+                if isinstance(error, dict):
+                    details.extend(entry.get('reason') for entry in error.get('errors', [])
+                                   if isinstance(entry, dict) and entry.get('reason'))
+                    if error.get('status'):
+                        details.append(error['status'])
+                elif isinstance(error, str):
+                    details.append(error)
+            except (TypeError, ValueError):
+                pass
+            safe = ', '.join(dict.fromkeys(str(value)[:80] for value in details))
+            suffix = f' ({safe})' if safe else ''
+            raise RuntimeError(f'YouTube/OAuth request failed: HTTP {response.status_code}{suffix}. '
+                               'Check credentials, quota and channel permissions.')
 
     def upload(self, path, metadata, state, save, *, made_for_kids, synthetic):
         with path.open('rb') as stream:
@@ -46,7 +62,13 @@ class YouTube:
                 headers={'X-Upload-Content-Length': str(size), 'X-Upload-Content-Type': 'video/mp4'},
                 json={'snippet': metadata, 'status': {'privacyStatus': 'private',
                       'selfDeclaredMadeForKids': made_for_kids, 'containsSyntheticMedia': synthetic}}, timeout=60)
-            self.check(r)
+            try:
+                self.check(r)
+            except RuntimeError:
+                # A received HTTP rejection proves no resumable session was created.
+                # Clear only this initiation marker so a corrected authorization can retry.
+                state.pop('started', None); state.pop('signature', None); save()
+                raise
             url = r.headers['Location']
             if urlparse(url).scheme != 'https' or urlparse(url).hostname != 'www.googleapis.com':
                 raise RuntimeError('Unexpected upload session host.')

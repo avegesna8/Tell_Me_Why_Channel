@@ -230,6 +230,16 @@ def process(item, queue, root, states, save):
         if state.get('schedule') and state['schedule'] != proposed:
             raise ValueError('Schedule changed after publishing began; reconcile the existing YouTube schedule first.')
         state.update(status='publishing', schedule=proposed); save()
+        # Compatibility recovery for versions that saved `started` before a
+        # definitive HTTP RuntimeError but did not clear it afterward. Network-level
+        # ambiguity uses a different exception type and remains blocked for safety.
+        if state.get('last_error_type') == 'RuntimeError':
+            recovered = False
+            for upload in state.get('uploads', {}).values():
+                if upload.get('started') and not upload.get('session') and not upload.get('id'):
+                    upload.pop('started', None); upload.pop('signature', None); recovered = True
+            if recovered:
+                save()
         yt = YouTube(); meta = json.loads((project/'metadata.json').read_text())
         for kind, location in [('long', project), ('short', project/'short')]:
             upload = state.setdefault('uploads', {}).setdefault(kind, {})

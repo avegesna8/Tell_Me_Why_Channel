@@ -59,6 +59,24 @@ class AutomationTests(unittest.TestCase):
                 yt.upload(path, {}, {'started': True}, Mock(), made_for_kids=False, synthetic=False)
             yt.session.post.assert_not_called()
 
+    def test_youtube_error_exposes_safe_machine_reason_only(self):
+        rejected = response(403, {'error': {'message': 'private provider text',
+            'status': 'PERMISSION_DENIED', 'errors': [{'reason': 'youtubeSignupRequired'}]}})
+        with self.assertRaisesRegex(RuntimeError, r'youtubeSignupRequired, PERMISSION_DENIED') as raised:
+            YouTube.check(rejected)
+        self.assertNotIn('private provider text', str(raised.exception))
+
+    def test_definitive_upload_rejection_clears_started_marker(self):
+        yt = YouTube.__new__(YouTube); yt.session = Mock()
+        yt.session.post.return_value = response(403, {'error': {'errors': [{'reason': 'forbidden'}]}})
+        state = {}; save = Mock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'video.mp4'; path.write_bytes(b'video')
+            with self.assertRaisesRegex(RuntimeError, 'forbidden'):
+                yt.upload(path, {}, state, save, made_for_kids=False, synthetic=False)
+        self.assertNotIn('started', state); self.assertNotIn('signature', state)
+        self.assertEqual(save.call_count, 2)
+
     def test_resumable_upload_queries_completed_job(self):
         yt = YouTube.__new__(YouTube); yt.session = Mock()
         yt.session.put.return_value = response(200, {'id': 'saved-video'})
