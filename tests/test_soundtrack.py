@@ -115,6 +115,19 @@ class SoundtrackTests(unittest.TestCase):
             self.assertEqual(entries[0]['title'],'Fresh Calm Track')
             self.assertEqual(entries[0]['kind'],'music')
 
+    def test_cataloged_bucket_asset_can_calculate_hash_and_duration_at_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'sfx').mkdir()
+            with wave.open(str(root/'sfx'/'Intro.wav'),'wb') as wav:
+                wav.setparams((1,2,8000,0,'NONE','not compressed'))
+                wav.writeframes(b'\0\0'*8000)
+            path=root/'library.json';path.write_text(json.dumps({'music':[],'sfx':[{
+                'id':'intro','file':'sfx/Intro.wav','attribution_required':False,'sha256':'auto'}]}))
+            entry=s.load_library(path)[0]
+            self.assertNotEqual(entry['sha256'],'auto')
+            self.assertEqual(len(entry['sha256']),64)
+            self.assertAlmostEqual(entry['duration_seconds'],1,places=2)
+
     def test_narration_only_is_a_valid_plan(self):
         self.assertEqual(s.resolve_plan({'music_id':None,'effects':[]},[],[],30),
                          {'music_id':None,'effects':[],'credits':[]})

@@ -49,6 +49,18 @@
   ],
   "sfx": [
     {
+      "id": "intro",
+      "file": "sfx/Intro.mp3",
+      "source": "User-managed Google Cloud audio library",
+      "attribution_required": false,
+      "attribution_text": "",
+      "purpose": "opening whoosh and channel intro accent",
+      "usage_note": "Reserved for the opening of every video. Blend under the first narration words; do not select it as a regular mid-video effect.",
+      "sha256": "auto",
+      "start_seconds": 0,
+      "clip_seconds": 1.0
+    },
+    {
       "id": "whoosh",
       "file": "sfx/Rake Swing Whoosh Hall.mp3",
       "duration_seconds": 7.925,

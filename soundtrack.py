@@ -63,8 +63,18 @@ def load_library(path, *, check_files=True):
                 raise ValueError('Confirm attribution requirements for ' + entry['id'])
             if entry['attribution_required'] and not (entry.get('attribution_text') or '').strip():
                 raise ValueError('Missing required attribution for ' + entry['id'])
-            if check_files and (not target.is_file() or file_hash(target) != entry['sha256']):
-                raise ValueError('Audio file missing or different from catalog: ' + entry['file'])
+            if check_files:
+                if not target.is_file():
+                    raise ValueError('Audio file missing from catalog: ' + entry['file'])
+                actual_hash = file_hash(target)
+                expected_hash = entry.get('sha256')
+                if expected_hash not in (None, 'auto') and actual_hash != expected_hash:
+                    raise ValueError('Audio file different from catalog: ' + entry['file'])
+                entry['sha256'] = actual_hash
+                if 'duration_seconds' not in entry:
+                    probe = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration',
+                                            '-of','json',str(target)],capture_output=True,text=True,check=True)
+                    entry['duration_seconds'] = float(json.loads(probe.stdout)['format']['duration'])
             entry.update(kind=kind, path=target)
             entries.append(entry)
     return entries
