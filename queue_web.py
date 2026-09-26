@@ -59,6 +59,19 @@ def slug(idea, request_id):
     return f'{base}-{request_id.replace("-", "")[:8]}'
 
 
+def queue_has_local_changes():
+    unstaged = run_git('diff', '--quiet', '--', 'video_queue.json', check=False).returncode != 0
+    staged = run_git('diff', '--cached', '--quiet', '--', 'video_queue.json', check=False).returncode != 0
+    return unstaged or staged
+
+
+def sync_queue():
+    if queue_has_local_changes():
+        return False
+    run_git('pull', '--ff-only', 'origin', 'main')
+    return True
+
+
 def load_queue():
     return validate_queue(json.loads(QUEUE.read_text()))
 
@@ -88,6 +101,7 @@ def add_idea(value):
     payload = validate_idea(value)
     with (ROOT / '.queue-web.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        sync_queue()
         queue = load_queue()
         item_id = slug(payload['idea'], payload['request_id'])
         existing = next((item for item in queue['items'] if item['id'] == item_id), None)
@@ -126,8 +140,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers(); self.wfile.write(body); return
         if path == '/api/queue':
             try:
+                try:
+                    sync_queue()
+                except RuntimeError:
+                    pass  # Keep the local dashboard usable during a temporary network failure.
                 queue = load_queue()
-                changed = run_git('diff', '--quiet', '--', 'video_queue.json', check=False).returncode != 0
+                changed = queue_has_local_changes()
                 self.send_json(200, {'items': queue['items'], 'has_uncommitted_queue_changes': changed,
                                      'workflow_url': WORKFLOW_URL})
             except Exception as exc:

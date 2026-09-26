@@ -23,7 +23,7 @@ concurrency:
   group: video-production-queue
   cancel-in-progress: false
 permissions:
-  contents: read
+  contents: write
   id-token: write
 jobs:
   produce:
@@ -107,3 +107,11 @@ jobs:
             ${{ steps.production.outputs.project }}/upload-details.json
             ${{ steps.production.outputs.project }}/soundtrack.json
             ${{ steps.production.outputs.project }}/short/soundtrack.json
+      - name: Archive completed queue item
+        if: steps.production.outputs.completed_item != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          .venv/bin/python -m automation.archive_queue
+          --repository "$GITHUB_REPOSITORY"
+          --item-id "${{ steps.production.outputs.completed_item }}"

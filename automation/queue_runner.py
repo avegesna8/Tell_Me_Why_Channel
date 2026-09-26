@@ -282,6 +282,9 @@ def main():
                 output.write(f"project={root / 'projects' / item['id']}\n")
         try:
             process(item, queue, root, states, save)
+            if states.get(item['id'], {}).get('status') == 'done' and os.getenv('GITHUB_OUTPUT'):
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                    output.write(f"completed_item={item['id']}\n")
         except Exception as exc:
             states.setdefault(item['id'], {})['last_error_type'] = type(exc).__name__; save()
             raise
