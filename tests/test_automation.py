@@ -180,7 +180,7 @@ class AutomationTests(unittest.TestCase):
     def test_wrong_approval_cannot_publish(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
              patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \
-             patch.dict('os.environ', {'APPROVE_ITEM_ID': 'imax-001', 'APPROVAL_CODE': 'stale'}):
+             patch.dict('os.environ', {'APPROVAL_CODE': 'stale'}):
             states = {'imax-001': {'status': 'ready', 'review_digest': 'current', 'email_review': 'sent'}}
             with self.assertRaisesRegex(ValueError, 'Approval does not match'):
                 process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
@@ -189,7 +189,7 @@ class AutomationTests(unittest.TestCase):
     def test_changed_package_revokes_approval(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='new'), \
              patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \
-             patch.dict('os.environ', {'APPROVE_ITEM_ID': '', 'APPROVAL_CODE': ''}):
+             patch.dict('os.environ', {'APPROVAL_CODE': ''}):
             states = {'imax-001': {'status': 'ready', 'review_digest': 'old', 'approved_digest': 'old', 'email_review': 'sent'}}
             process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
             self.assertNotIn('approved_digest', states['imax-001'])
@@ -200,7 +200,7 @@ class AutomationTests(unittest.TestCase):
         from automation.queue_runner import apply_regeneration
         state = {'status': 'awaiting_approval', 'review_digest': 'v1', 'email_review': 'sent',
                  'approved_digest': 'v1', 'signature': 'idea'}
-        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVE_ITEM_ID': 'imax-001', 'APPROVAL_CODE': 'v1'}):
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVAL_CODE': 'v1'}):
             save = Mock()
             apply_regeneration(item(), state, save)
             self.assertEqual(state['revision'], 2)
@@ -213,7 +213,7 @@ class AutomationTests(unittest.TestCase):
 
     def test_regeneration_rejects_stale_code_and_uploaded_video(self):
         from automation.queue_runner import apply_regeneration
-        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVE_ITEM_ID': 'imax-001', 'APPROVAL_CODE': 'old'}):
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVAL_CODE': 'old'}):
             for state in [{'status': 'awaiting_approval', 'review_digest': 'new', 'email_review': 'sent'},
                           {'status': 'publishing', 'review_digest': 'old', 'uploads': {'long': {'id': 'uploaded'}}}]:
                 with self.assertRaises(ValueError):
@@ -235,7 +235,7 @@ class AutomationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             states = {item()['id']:{'status':'ready','review_digest':'digest','email_review':'sent'}}
-            with patch.dict('os.environ', {'REVIEW_ONLY':'1', 'APPROVE_ITEM_ID':item()['id'], 'APPROVAL_CODE':'digest'}), \
+            with patch.dict('os.environ', {'REVIEW_ONLY':'1', 'APPROVAL_CODE':'digest'}), \
                  patch.object(q, 'review_digest', return_value='digest'), \
                  patch.object(q, 'email_summary'), patch.object(q, 'YouTube') as youtube:
                 process(item(), {'email_mode':'confirmation'}, root, states, Mock())

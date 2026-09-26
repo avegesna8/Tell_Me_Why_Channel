@@ -87,7 +87,7 @@ def email_summary(item, project, state, save, kind):
         report['thumbnail_warning'] = state['thumbnail_error']
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
-        report['approval'] = {'workflow': approval_url, 'approve_id': item['id'], 'approval_code': state['review_digest'],
+        report['approval'] = {'workflow': approval_url, 'approval_code': state['review_digest'],
                               'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate']}
     p.save_json(project / 'upload-details.json', report)
     videos = [project/'video.mp4', project/'short/video.mp4']
@@ -96,7 +96,7 @@ def email_summary(item, project, state, save, kind):
                   'Download both videos from the video-review artifact on the workflow-run link below. '
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
-        ('\n\nOpen the workflow link, click Run workflow, enter the item ID and code above, then choose review_action: '
+        ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
          'approve to upload both videos privately, or regenerate to create a completely new version of this idea. '
          'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
@@ -123,8 +123,8 @@ def apply_regeneration(item, state, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate':
         return
     code = os.getenv('APPROVAL_CODE', '')
-    if os.getenv('APPROVE_ITEM_ID') != item['id'] or not code:
-        raise ValueError('Regeneration requires the item ID and code from its review email.')
+    if not code:
+        raise ValueError('Regeneration requires the code from its review email.')
     if code in state.get('regeneration_requests', []):
         return  # Retried dispatch resumes that version, not another paid generation.
     if state.get('uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
@@ -186,11 +186,10 @@ def process(item, queue, root, states, save):
             state['status'] = 'awaiting_approval'; save()
             print('Review-only run complete. YouTube uploads are disabled for this run.')
             return
-        approval_id = os.getenv('APPROVE_ITEM_ID', '')
         approval_code = os.getenv('APPROVAL_CODE', '')
-        if (approval_id or approval_code) and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
-            if approval_id != item['id'] or approval_code != digest or state.get('email_review') != 'sent':
-                raise ValueError('Approval does not match the current emailed package. Use the item ID and code from its latest review email.')
+        if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
+            if approval_code != digest or state.get('email_review') != 'sent':
+                raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
             state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
@@ -267,11 +266,9 @@ def main():
             print('Queue empty; nothing to do.'); return
         if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate'):
             raise ValueError('Unknown review action.')
-        if os.getenv('APPROVE_ITEM_ID') and os.environ['APPROVE_ITEM_ID'] != item['id']:
-            raise ValueError('This review action does not match the first unfinished queue item; nothing was started.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']
-        if queue['email_mode'] == 'confirmation' or (os.getenv('APPROVE_ITEM_ID') and os.getenv('REVIEW_ACTION', 'approve') == 'approve') or states.get(item['id'], {}).get('approved_digest'):
+        if queue['email_mode'] == 'confirmation' or (os.getenv('APPROVAL_CODE') and os.getenv('REVIEW_ACTION', 'approve') == 'approve') or states.get(item['id'], {}).get('approved_digest'):
             required += ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN']
         missing = [name for name in required if not os.getenv(name)]
         if missing:

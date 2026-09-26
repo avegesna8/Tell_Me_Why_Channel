@@ -7,16 +7,12 @@ on:
         type: boolean
         default: true
       review_action:
-        description: 'Action for the emailed package (leave IDs empty for normal production)'
+        description: 'Action for the emailed package (leave approval code empty for normal production)'
         type: choice
         options:
           - approve
           - regenerate
         default: approve
-      approve_id:
-        description: 'To approve an emailed package, paste its item ID'
-        required: false
-        type: string
       approval_code:
         description: 'Paste the approval code from that same review email'
         required: false
@@ -31,13 +27,12 @@ permissions:
   id-token: write
 jobs:
   produce:
-    if: vars.ENABLE_VIDEO_AUTOMATION == 'true' || (github.event_name == 'workflow_dispatch' && (inputs.review_only || inputs.approve_id != ''))
+    if: vars.ENABLE_VIDEO_AUTOMATION == 'true' || (github.event_name == 'workflow_dispatch' && (inputs.review_only || inputs.approval_code != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
       REVIEW_ONLY: ${{ inputs.review_only && '1' || '' }}
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
-      APPROVE_ITEM_ID: ${{ inputs.approve_id }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}

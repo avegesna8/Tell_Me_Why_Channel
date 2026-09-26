@@ -57,7 +57,7 @@ YouTube privacy set to `private`.
 thumbnail, scripts and metadata as attachments to abhinn.varma@gmail.com. The
 email links to the workflow run containing video artifacts. It then waits:
 open the approval workflow link in the email, select **Run workflow**, and paste
-the provided `approve_id` and `approval_code`. GitHub sign-in and workflow-run
+the provided `approval_code`. GitHub sign-in and workflow-run
 permission are required. The code binds approval to the exact videos, scripts,
 metadata, thumbnail and audience declarations. Edits invalidate
 approval and cause a new review email. The legacy queue `approved` field is ignored.
@@ -199,7 +199,7 @@ References:
 ## Regenerate from the review email
 
 The same emailed workflow link now offers `review_action: approve` or
-`regenerate`. Enter the item ID and package code from that review email.
+`regenerate`. Enter the package code from that review email.
 Regenerate starts a completely fresh script, long video, Short, images, thumbnail
 and metadata for the same idea. New versions are saved under
 `projects/ITEM_ID/revision-002/`, then `revision-003/`, etc. Previous files and
