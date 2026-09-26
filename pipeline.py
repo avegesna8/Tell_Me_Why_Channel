@@ -273,7 +273,7 @@ def script_from_idea(idea, directory, minutes=3, notes=None):
             "End by directly resolving the central question in one concise takeaway. The closing answer sentence "
             "must naturally complete the channel phrase ‘And now you know why …’ with the question's subject, "
             "for example, ‘And now you know why airplanes leave white trails in the sky.’ Follow it only "
-            "with the brief final sign-off, ‘I’ll see you next time.’ Avoid generic thanks-for-watching, repetitive "
+            "with the brief final sign-off, ‘Thanks for tuning in, and I’ll see you next time.’ Avoid generic thanks-for-watching, repetitive "
             "recaps, and forced like-and-subscribe requests. Keep both opening and closing within the "
             "requested word budget. Use natural conversational language, contractions, "
             "varied sentence lengths and punctuation that reads naturally aloud. Make each sentence flow into the next with "
