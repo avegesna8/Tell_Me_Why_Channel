@@ -8,6 +8,10 @@ import pipeline as p
 
 
 class IdeaTests(unittest.TestCase):
+    def setUp(self):
+        self.quality = patch('script_quality.review_script', side_effect=lambda script, request, directory: script)
+        self.quality.start()
+        self.addCleanup(self.quality.stop)
     def test_automatic_pacing(self):
         self.assertEqual(p.automatic_scene_count("word " * 405), 27)
         self.assertEqual(p.automatic_scene_count("word " * 405, 3), 54)

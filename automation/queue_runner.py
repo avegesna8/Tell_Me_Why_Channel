@@ -53,7 +53,7 @@ def choose_item(queue, state):
 
 
 def review_digest(item, project):
-    files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg', 'script.txt', 'short/script.txt']
+    files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg', 'script.txt', 'short/script.txt', 'script-quality.json']
     hashes = {}
     for name in files:
         with (project / name).open('rb') as stream:
@@ -81,6 +81,8 @@ def email_summary(item, project, state, save, kind):
     report['soundtracks'] = {kind: json.loads((location/'soundtrack.json').read_text())
                             for kind, location in [('long',project),('short',project/'short')]
                             if (location/'soundtrack.json').exists()}
+    if (project/'script-quality.json').exists():
+        report['script_quality'] = json.loads((project/'script-quality.json').read_text())
     if state.get('thumbnail_error'):
         report['thumbnail_warning'] = state['thumbnail_error']
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
@@ -98,7 +100,7 @@ def email_summary(item, project, state, save, kind):
          'approve to upload both videos privately, or regenerate to create a completely new version of this idea. '
          'Regenerate recreates the script, both videos, images, thumbnail and metadata, and sends a new review email. '
          'Previous versions are preserved. Replies to this email are not processed.' if kind == 'review' else ''))
-    for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt']:
+    for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt', project/'script-quality.json']:
         if not file.exists():
             continue
         mime = ('image', 'jpeg') if file.suffix == '.jpg' else ('application', 'json') if file.suffix == '.json' else ('text', 'plain')

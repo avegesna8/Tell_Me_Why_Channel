@@ -43,6 +43,9 @@ jobs:
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_PLAN_MODEL: ${{ vars.OPENAI_PLAN_MODEL || 'gpt-4.1-mini' }}
+      OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL || vars.OPENAI_PLAN_MODEL || 'gpt-4.1-mini' }}
+      SCRIPT_WEB_FACT_CHECK: ${{ vars.SCRIPT_WEB_FACT_CHECK || '0' }}
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_ENDPOINT_ID: ${{ vars.RUNPOD_ENDPOINT_ID }}
       RUNPOD_MODEL_VERSION: ${{ vars.RUNPOD_MODEL_VERSION || '2.5' }}
@@ -97,6 +100,8 @@ jobs:
             ${{ steps.production.outputs.project }}/video.mp4
             ${{ steps.production.outputs.project }}/short/video.mp4
             ${{ steps.production.outputs.project }}/script.txt
+            ${{ steps.production.outputs.project }}/script.draft.txt
+            ${{ steps.production.outputs.project }}/script-quality.json
             ${{ steps.production.outputs.project }}/short/script.txt
             ${{ steps.production.outputs.project }}/metadata.json
             ${{ steps.production.outputs.project }}/thumbnail.jpg

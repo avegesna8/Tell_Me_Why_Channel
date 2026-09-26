@@ -250,7 +250,13 @@ def script_from_idea(idea, directory, minutes=3, notes=None):
             atomic_write(script_path, (record["narration"] + "\n").encode())
         if not script_path.read_text().strip():
             raise ValueError("Saved script.txt is empty; restore or edit it before continuing.")
-        print(f"Reusing script: {script_path}", flush=True)
+        from script_quality import review_script
+        final_script = review_script(script_path.read_text().strip(), request, directory)
+        if final_script != script_path.read_text().strip():
+            atomic_write(script_path, (final_script + "\n").encode())
+            record['narration'] = final_script
+            save_json(record_path, record)
+        print(f"Reusing reviewed script: {script_path}", flush=True)
         return script_path
     if script_path.exists() or (directory / "storyboard.json").exists():
         raise ValueError("Output already contains a script/storyboard. Choose a new --out directory for this idea.")
@@ -296,8 +302,14 @@ def script_from_idea(idea, directory, minutes=3, notes=None):
         raise ValueError("Writer returned an invalid title or narration; no script saved.")
     record["request"] = request
     save_json(record_path, record)
+    atomic_write(directory / "script.draft.txt", (record["narration"].strip() + "\n").encode())
     atomic_write(script_path, (record["narration"].strip() + "\n").encode())
-    print(f"Script saved: {script_path} ({len(record['narration'].split())} words)", flush=True)
+    from script_quality import review_script
+    final_script = review_script(record["narration"].strip(), request, directory)
+    record["narration"] = final_script
+    save_json(record_path, record)
+    atomic_write(script_path, (final_script + "\n").encode())
+    print(f"Reviewed script saved: {script_path} ({len(final_script.split())} words)", flush=True)
     return script_path
 
 

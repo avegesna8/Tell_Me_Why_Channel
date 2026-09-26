@@ -1,0 +1,49 @@
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+
+import script_quality as q
+
+
+def review_response(*, approved=True, score=8, script=None, severity='low'):
+    final = script or ' '.join(f'Point {i} adds a clear useful detail.' for i in range(24))
+    body = {'approved': approved,
+            'scores': {key: score for key in ('hook','clarity','flow','accuracy','narration_quality','visual_potential')},
+            'remaining_issues': [] if approved else [{'severity': severity, 'reason': 'Needs correction.'}],
+            'changes': ['Improved spoken flow.'], 'final_script': final}
+    response = Mock()
+    response.json.return_value = {'status':'completed','output':[{'type':'message','content':[{
+        'type':'output_text','text':json.dumps(body)}]}]}
+    return response
+
+
+class ScriptQualityTests(unittest.TestCase):
+    def test_one_review_call_is_cached_and_web_is_off_by_default(self):
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        request = {'idea':'A topic','minutes':1}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', return_value=review_response()) as post, \
+             patch.dict('os.environ', {'SCRIPT_WEB_FACT_CHECK':'0','OPENAI_PLAN_MODEL':'gpt-4.1-mini'}, clear=False):
+            first = q.review_script(draft, request, Path(tmp))
+            second = q.review_script(draft, request, Path(tmp))
+            self.assertEqual(first, second)
+            self.assertEqual(post.call_count, 1)
+            payload = post.call_args.args[3]
+            self.assertNotIn('tools', payload)
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertFalse(report['web_fact_check'])
+
+    def test_low_score_blocks_before_assets(self):
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', return_value=review_response(
+                approved=False, score=6, severity='high')):
+            with self.assertRaisesRegex(ValueError, 'quality gate'):
+                q.review_script(draft, {'idea':'A topic','minutes':1}, Path(tmp))
+            self.assertFalse(json.loads((Path(tmp)/'script-quality.json').read_text())['approved'])
+
+    def test_deterministic_checks_reject_non_narration_format(self):
+        findings = q.deterministic_findings('[excited]\nhttps://example.com ' + ('word ' * 70), 1)
+        self.assertTrue(any('URL' in finding for finding in findings))
+        self.assertTrue(any('heading' in finding for finding in findings))

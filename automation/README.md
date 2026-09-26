@@ -110,6 +110,12 @@ Repository Variables:
 Repository Secrets:
 
 - OPENAI_API_KEY, RUNPOD_API_KEY
+
+Optional repository variables for script review:
+
+- OPENAI_PLAN_MODEL: writer/planner model; defaults to `gpt-4.1-mini`.
+- OPENAI_REVIEW_MODEL: single-pass reviewer; defaults to the planning model.
+- SCRIPT_WEB_FACT_CHECK: keep `0` for the low-cost default; set `1` to allow web search in that same review call.
 - SMTP_USERNAME, SMTP_PASSWORD (an app password if supported by your provider)
 - YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
 
@@ -197,6 +203,26 @@ approval inputs are provided. Disable review-only when approving an emailed pack
 after production is configured; approval uploads both videos privately.
 For Shorts under 45 seconds, audio is fitted to the requested target within the
 same 0.8–1.25 speed limits; final duration must be within one second of the target.
+
+## Low-cost script quality gate
+
+Before storyboard, narration or image generation, each new long-form script gets
+free deterministic checks plus one cached structured editorial review using
+`OPENAI_REVIEW_MODEL`, or `OPENAI_PLAN_MODEL` when no separate reviewer is set.
+The reviewer may return one polished revision in that same call. There is no
+multi-pass LLM loop. A retry reuses `script-quality.json` unless the script, brief,
+model or review mode changes. The original draft remains in `script.draft.txt`.
+The review requires all final scores to be at least 7/10, no remaining high-severity
+issue, a reasonable word count, and narration-safe formatting before any audio or
+images are requested. The report is included in the review email and artifact.
+
+`SCRIPT_WEB_FACT_CHECK=0` is the default and avoids web-search tool charges. Set it
+to `1` only when source-grounded fact checking is worth the extra tool cost; it
+still uses the same single review response. Without web search, the reviewer is
+instructed to qualify or remove claims it cannot confidently support rather than
+claiming independent verification. Shorts use the reviewed long script as their
+source and retain their existing duration and narration checks without another
+editorial LLM call.
 
 ## Current voice and creative direction
 
