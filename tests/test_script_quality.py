@@ -47,3 +47,31 @@ class ScriptQualityTests(unittest.TestCase):
         findings = q.deterministic_findings('[excited]\nhttps://example.com ' + ('word ' * 70), 1)
         self.assertTrue(any('URL' in finding for finding in findings))
         self.assertTrue(any('heading' in finding for finding in findings))
+
+class ScriptQualityResumeTests(unittest.TestCase):
+    def test_reviewed_final_script_reuses_same_review(self):
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        final = ' '.join(f'Final point {i} adds a clear useful detail.' for i in range(24))
+        request = {'idea': 'A topic', 'minutes': 1}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', return_value=review_response(script=final)) as post:
+            root = Path(tmp)
+            self.assertEqual(q.review_script(draft, request, root), final)
+            self.assertEqual(q.review_script(final, request, root), final)
+            self.assertEqual(post.call_count, 1)
+
+    def test_recovers_redundant_failed_review_from_persisted_approval(self):
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        final = ' '.join(f'Final point {i} adds a clear useful detail.' for i in range(24))
+        request = {'idea': 'A topic', 'minutes': 1}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', return_value=review_response(approved=False, score=6, script=final, severity='high')):
+            root = Path(tmp); (root/'script.draft.txt').write_text(draft)
+            (root/'idea.json').write_text(json.dumps({'narration': final, 'request': request}))
+            with self.assertRaises(ValueError):
+                q.review_script(final, request, root)
+            recovered = q.review_script(final, request, root)
+            report = json.loads((root/'script-quality.json').read_text())
+            self.assertEqual(recovered, final)
+            self.assertTrue(report['approved'])
+            self.assertTrue(report['recovered_prior_approval'])

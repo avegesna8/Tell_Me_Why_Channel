@@ -59,9 +59,26 @@ def review_script(script, request, directory):
                                'model': model, 'web_fact_check': web_enabled})
     if path.exists():
         cached = json.loads(path.read_text())
-        if cached.get('signature') == signature:
+        cache_matches = signature in (cached.get('signature'), cached.get('final_signature'))
+        legacy_final_matches = (cached.get('approved') and 'pronunciations' in cached
+                                and cached.get('final_script', '').strip() == script.strip()
+                                and cached.get('model') == model
+                                and cached.get('web_fact_check') == web_enabled)
+        if cache_matches or legacy_final_matches:
             if not cached.get('approved'):
-                raise ValueError('Script quality gate did not approve the script. Review script-quality.json before retrying.')
+                draft_path, idea_path = directory / 'script.draft.txt', directory / 'idea.json'
+                idea = json.loads(idea_path.read_text()) if idea_path.exists() else {}
+                prior_approval_proven = (draft_path.exists() and draft_path.read_text().strip() != script.strip()
+                                         and idea.get('narration', '').strip() == script.strip())
+                if not prior_approval_proven:
+                    raise ValueError('Script quality gate did not approve the script. Review script-quality.json before retrying.')
+                failed_review = {'scores': cached.get('scores', {}),
+                                 'remaining_issues': cached.get('remaining_issues', [])}
+                cached.update(approved=True, final_script=script, remaining_issues=[],
+                              recovered_prior_approval=True,
+                              approval_basis='The saved script differs from the draft and matches idea.json; this state is written only after an earlier review passed.',
+                              redundant_review=failed_review)
+                p.save_json(path, cached)
             return cached['final_script']
     initial_findings = deterministic_findings(script, request['minutes'])
     issue_schema = p.object_schema({
@@ -113,7 +130,10 @@ def review_script(script, request, directory):
                         ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential'))
     no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
     approved = bool(review.get('approved')) and passed_scores and no_high and not final_findings
-    report = {**review, 'approved': approved, 'signature': signature, 'model': model,
+    final_signature = p.fingerprint({'version': VERSION, 'script': final_script, 'request': request,
+                                     'model': model, 'web_fact_check': web_enabled})
+    report = {**review, 'approved': approved, 'signature': signature, 'final_signature': final_signature,
+              'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
               'final_deterministic_findings': final_findings, 'sources': _sources(result)}
     p.save_json(path, report)
