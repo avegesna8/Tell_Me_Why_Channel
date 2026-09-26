@@ -37,7 +37,11 @@ def archive_completed(repo, path, item_id, token, branch='main', attempts=3):
             raise RuntimeError(f'GitHub queue read failed with HTTP {current.status_code}.')
         record = current.json()
         try:
-            raw = base64.b64decode(record['content'], validate=True).decode()
+            encoded = record['content']
+            if not isinstance(encoded, str):
+                raise TypeError('content is not text')
+            # GitHub's Contents API wraps Base64 at fixed-width line boundaries.
+            raw = base64.b64decode(''.join(encoded.split()), validate=True).decode()
             updated = remove_item(raw, item_id)
             sha = record['sha']
         except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:

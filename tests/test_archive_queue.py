@@ -19,9 +19,11 @@ class ArchiveQueueTests(unittest.TestCase):
         queue = {'email_mode': 'review', 'items': [
             {'id': 'done', 'idea': 'Done', 'made_for_kids': False, 'contains_synthetic_media': False}]}
         get = Mock(ok=True, status_code=200)
+        encoded = base64.b64encode(json.dumps(queue).encode()).decode()
+        wrapped = '\n'.join(encoded[index:index+20] for index in range(0, len(encoded), 20))
         get.json.side_effect = [
-            {'sha': 'old', 'content': base64.b64encode(json.dumps(queue).encode()).decode()},
-            {'sha': 'new', 'content': base64.b64encode(json.dumps(queue).encode()).decode()}]
+            {'sha': 'old', 'content': wrapped},
+            {'sha': 'new', 'content': wrapped}]
         conflict = Mock(ok=False, status_code=409); success = Mock(ok=True, status_code=200)
         with patch('automation.archive_queue.requests.get', return_value=get) as reads, \
              patch('automation.archive_queue.requests.put', side_effect=[conflict, success]) as writes:
