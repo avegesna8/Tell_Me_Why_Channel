@@ -85,6 +85,18 @@ class YouTube:
                 r = self.session.put(url, data=chunk, headers={'Content-Type': 'video/mp4',
                     'Content-Range': f'bytes {offset}-{offset + len(chunk)-1}/{size}'}, timeout=(15, 300))
 
+    def configure_defaults(self, video_id, metadata, *, made_for_kids, synthetic):
+        snippet = dict(metadata)
+        snippet.update(defaultLanguage='en', defaultAudioLanguage='en')
+        r = self.session.put('https://www.googleapis.com/youtube/v3/videos',
+            params={'part': 'snippet,status,paidProductPlacementDetails'},
+            json={'id': video_id, 'snippet': snippet,
+                  'status': {'privacyStatus': 'private', 'selfDeclaredMadeForKids': made_for_kids,
+                             'containsSyntheticMedia': synthetic, 'embeddable': True,
+                             'license': 'youtube', 'publicStatsViewable': True},
+                  'paidProductPlacementDetails': {'hasPaidProductPlacement': False}}, timeout=60)
+        self.check(r)
+
     def thumbnail(self, video_id, path):
         with path.open('rb') as image:
             r = self.session.post('https://www.googleapis.com/upload/youtube/v3/thumbnails/set',

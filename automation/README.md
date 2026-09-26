@@ -136,6 +136,11 @@ remove that restriction. No public scheduling is performed. Custom-thumbnail per
 additional channel eligibility; if YouTube rejects the thumbnail, both videos still
 upload privately and the confirmation email tells you to add it manually.
 
+Every approved upload is explicitly configured as private with English metadata
+and spoken audio (`en`), no paid product placement, embedding allowed, the standard
+YouTube license, public statistics visible, and the queue's made-for-kids and
+synthetic-media declarations. The Education category remains the queue default.
+
 The long video gets a generated reference-based 1280×720 thumbnail. The Short
 gets its own title/description/tags, but no custom thumbnail is applied through
 this workflow; choose its cover in YouTube's supported Shorts interface.

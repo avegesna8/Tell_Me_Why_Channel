@@ -56,6 +56,22 @@ class AutomationTests(unittest.TestCase):
         self.assertNotIn('started', state); self.assertNotIn('signature', state)
         self.assertEqual(save.call_count, 2)
 
+    def test_recommended_private_upload_defaults(self):
+        yt = YouTube.__new__(YouTube); yt.session = Mock()
+        yt.session.put.return_value = response(200, {})
+        yt.configure_defaults('video-id', {'title': 'Title', 'description': 'Description',
+            'tags': ['topic'], 'categoryId': '27'}, made_for_kids=False, synthetic=False)
+        request = yt.session.put.call_args
+        self.assertEqual(request.kwargs['params']['part'], 'snippet,status,paidProductPlacementDetails')
+        body = request.kwargs['json']
+        self.assertEqual(body['snippet']['defaultLanguage'], 'en')
+        self.assertEqual(body['snippet']['defaultAudioLanguage'], 'en')
+        self.assertEqual(body['snippet']['categoryId'], '27')
+        self.assertEqual(body['status'], {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False,
+            'containsSyntheticMedia': False, 'embeddable': True, 'license': 'youtube',
+            'publicStatsViewable': True})
+        self.assertEqual(body['paidProductPlacementDetails']['hasPaidProductPlacement'], False)
+
     def test_resumable_upload_queries_completed_job(self):
         yt = YouTube.__new__(YouTube); yt.session = Mock()
         yt.session.put.return_value = response(200, {'id': 'saved-video'})
@@ -137,6 +153,9 @@ class AutomationTests(unittest.TestCase):
                  patch('automation.queue_runner.email_summary', side_effect=lambda *args: events.append('email')):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             self.assertEqual(events, ['upload-long', 'upload-short', 'email'])
+            self.assertEqual(yt.configure_defaults.call_count, 2)
+            self.assertTrue(states['imax-001']['uploads']['long']['defaults_set'])
+            self.assertTrue(states['imax-001']['uploads']['short']['defaults_set'])
             self.assertEqual(states['imax-001']['status'], 'done')
 
     def test_thumbnail_rejection_does_not_block_private_short_upload(self):

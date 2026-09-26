@@ -213,6 +213,10 @@ def process(item, queue, root, states, save):
             snippet['categoryId'] = str(queue.get('category_id', '27'))
             video_id = yt.upload(location/'video.mp4', snippet, upload, save,
                 made_for_kids=item['made_for_kids'], synthetic=item['contains_synthetic_media'])
+            if not upload.get('defaults_set'):
+                yt.configure_defaults(video_id, snippet, made_for_kids=item['made_for_kids'],
+                                      synthetic=item['contains_synthetic_media'])
+                upload['defaults_set'] = True; save()
             if kind == 'long' and not upload.get('thumbnail_set') and not state.get('thumbnail_error'):
                 try:
                     yt.thumbnail(video_id, project/'thumbnail.jpg')
