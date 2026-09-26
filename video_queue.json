@@ -1,18 +1,7 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [
-    {
-      "id": "imax-test-001",
-      "idea": "What does IMAX mean? Explain Image Maximum, the immersive screen and sound, and why IMAX experiences vary by theater. Avoid implying every IMAX uses film or the same screen size.",
-      "notes": "",
-      "minutes": 1,
-      "short_seconds": 30,
-      "enabled": true,
-      "made_for_kids": false,
-      "contains_synthetic_media": false
-    }
-  ],
+  "items": [],
   "timezone": "America/New_York",
   "notification_email": "abhinn.varma@gmail.com"
 }
