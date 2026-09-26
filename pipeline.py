@@ -426,6 +426,18 @@ def image_prompt(board, scene):
             f"STORY CONTEXT:\n{json.dumps(context, ensure_ascii=False, indent=2)}")
 
 
+def safe_image_fallback(board):
+    """Provider-safe connective visual used only after an image safety rejection."""
+    orientation = "vertical 9:16" if board["aspect_ratio"] == "9:16" else "widescreen 16:9"
+    return (
+        "Create a family-safe, nonviolent hand-drawn 2D explainer illustration in a " + orientation + " composition. "
+        "Show a friendly original stick-figure narrator thoughtfully examining neutral abstract shapes, arrows, charts, "
+        "and a large blank display. Use expressive body language, clean ink outlines, flat colors, restrained shading, "
+        "and a clear center-safe composition. Do not depict real people, recognizable fictional characters, brands, logos, "
+        "weapons, crime, injuries, threatening actions, readable text, watermarks, or copyrighted imagery. Still image."
+    )
+
+
 def asset_payloads(board, scene, voice, *, require_voice=True):
     voice = voice.strip()
     if require_voice and not voice:
@@ -503,11 +515,19 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
                     data = response.content
             else:
                 atomic_write(directory / f"{stem}.prompt.txt", payload["prompt"].encode())
-                if reference:
-                    response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/edits", payload,
-                                        image_reference=reference)
-                else:
-                    response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/generations", payload)
+                try:
+                    if reference:
+                        response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/edits", payload,
+                                            image_reference=reference)
+                    else:
+                        response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/generations", payload)
+                except RuntimeError as exc:
+                    if "safety system" not in str(exc).lower():
+                        raise
+                    fallback = {**payload, "prompt": safe_image_fallback(board)}
+                    atomic_write(directory / f"{stem}.prompt-safety-fallback.txt", fallback["prompt"].encode())
+                    print(f"Image safety filter rejected {stem}; generating a neutral cutaway…", flush=True)
+                    response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", "/images/generations", fallback)
                 data = base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
             if not data:
                 raise RuntimeError(f"Provider returned empty {kind}.")

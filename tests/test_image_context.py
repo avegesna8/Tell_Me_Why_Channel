@@ -45,3 +45,22 @@ class ImageContextTests(unittest.TestCase):
                 ref.write_bytes(b"\x89PNG\r\n\x1a\nchanged")
                 p.generate_assets(value, root, "voice", image_reference=ref)
                 self.assertEqual(api.call_count, 5)
+
+class ImageSafetyFallbackTests(unittest.TestCase):
+    def test_safety_rejection_uses_neutral_generation_fallback(self):
+        from test_pipeline import board
+        from test_runpod_tts import wav_bytes
+        value = board(); value['scenes'] = value['scenes'][:1]
+        value['scenes'][0]['prompt'] = 'A branded violent game scene'
+        runpod = Mock(model_version='2.5')
+        runpod.fingerprint_data.side_effect = lambda text: {'text': text}
+        runpod.synthesize.return_value = wav_bytes()
+        image = Mock(); image.json.return_value = {'data': [{'b64_json': 'aW1hZ2U='}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                p, 'api_post', side_effect=[RuntimeError('request rejected by the safety system'), image]) as api:
+            p.generate_assets(value, Path(tmp)/'assets', '', runpod=runpod, narration_mode='continuous')
+            self.assertEqual(api.call_count, 2)
+            self.assertEqual(api.call_args.args[2], '/images/generations')
+            self.assertNotIn('branded violent game', api.call_args.args[3]['prompt'])
+            self.assertTrue((Path(tmp)/'assets/scene-001.prompt-safety-fallback.txt').exists())
+            self.assertTrue((Path(tmp)/'assets/scene-001.png').exists())
