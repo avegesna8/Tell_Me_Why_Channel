@@ -55,14 +55,20 @@ def valid_cmu(value):
     tokens = value.strip().split()
     return bool(tokens) and all(token == "." or re.sub(r"[0-2]$", "", token) in ARPABET for token in tokens)
 
-def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True):
+def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True,
+                        apply_suggested_pronunciations=False):
     spoken, changes = normalize_spoken(script)
     applied, ignored = [], []
     if phoneme_annotations:
         automatic = [{"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"}]
         automatic = [entry for entry in automatic
                      if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken)]
-        entries = list(pronunciations or []) + automatic
+        suggestions = list(pronunciations or [])
+        if not apply_suggested_pronunciations:
+            ignored.extend({"entry": entry, "reason": "AI-suggested pronunciation retained for review but not sent to TTS"}
+                           for entry in suggestions)
+            suggestions = []
+        entries = suggestions + automatic
         seen = set()
         for entry in sorted(entries, key=lambda item: len(str(item.get("text", ""))), reverse=True):
             written = str(entry.get("text", "")).strip(); cmu = str(entry.get("cmu", "")).strip().upper()
