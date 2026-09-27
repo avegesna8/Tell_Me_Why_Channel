@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 import requests
@@ -11,6 +12,7 @@ import requests
 
 API_ROOT = "https://open.tiktokapis.com"
 UPLOAD_HOST = "open-upload.tiktokapis.com"
+REGIONAL_UPLOAD_HOST = re.compile(r"upload\.[a-z0-9-]+\.tiktokapis\.com\Z")
 
 
 class TikTok:
@@ -114,7 +116,10 @@ class TikTok:
                 raise
             upload_url = data["upload_url"]
             parsed = urlparse(upload_url)
-            if parsed.scheme != "https" or parsed.hostname != UPLOAD_HOST:
+            valid_host = parsed.hostname == UPLOAD_HOST or bool(
+                parsed.hostname and REGIONAL_UPLOAD_HOST.fullmatch(parsed.hostname)
+            )
+            if parsed.scheme != "https" or not valid_host:
                 raise RuntimeError("TikTok returned an unexpected upload host.")
             state.update(publish_id=data["publish_id"], upload_url=upload_url)
             save()

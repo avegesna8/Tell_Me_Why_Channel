@@ -65,6 +65,29 @@ class TikTokTests(unittest.TestCase):
         self.assertNotIn("upload_url", state)
         self.assertEqual(client.session.put.call_args.kwargs["headers"]["Content-Range"], "bytes 0-4/5")
 
+    def test_accepts_documented_regional_upload_host(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"publish_id": "draft-1", "upload_url":
+                     "https://upload.us.tiktokapis.com/video/?upload_id=1&upload_token=safe"}
+        })
+        client.session.put.return_value = response(status=201)
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            self.assertEqual(client.upload_draft(video, {}, Mock()), "draft-1")
+
+    def test_rejects_lookalike_upload_host(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"publish_id": "draft-1", "upload_url":
+                     "https://upload.us.tiktokapis.com.attacker.example/video/"}
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            with self.assertRaisesRegex(RuntimeError, "unexpected upload host"):
+                client.upload_draft(video, {}, Mock())
+        client.session.put.assert_not_called()
+
     def test_unknown_upload_does_not_resend_bytes(self):
         client = self.make_client()
         client.status = Mock(return_value={"status": "PROCESSING_UPLOAD", "uploaded_bytes": 0})
