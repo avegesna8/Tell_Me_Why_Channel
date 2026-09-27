@@ -24,6 +24,12 @@ class ImageQualityTests(unittest.TestCase):
         self.assertIn('absolutely no readable text', prompt)
         self.assertIn('blank color shapes', prompt)
 
+    def test_text_safe_fallback_avoids_text_bearing_objects(self):
+        prompt = pipeline.text_safe_fallback_prompt('Draw an office.')
+        self.assertIn('completely different visual concept', prompt)
+        self.assertIn('Do not include signs, posters, books', prompt)
+        self.assertIn('Absolutely no letters', prompt)
+
     def test_flagged_scene_is_regenerated_only_once(self):
         failed = {'passed': False, 'detected_text': [{'text': 'WRNG', 'confidence': 91}],
                   'image_sha256': 'old'}
@@ -42,17 +48,38 @@ class ImageQualityTests(unittest.TestCase):
             self.assertTrue(report['passed'])
             self.assertEqual(report['attempt'], 2)
 
-    def test_second_failed_attempt_blocks_without_another_request(self):
+    def test_second_failed_attempt_uses_different_text_safe_visual(self):
         failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+                  'first_detected_text': [{'text': 'BAD'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
+        passed = {'passed': True, 'detected_text': [], 'image_sha256': 'fallback'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'image')
             with patch('image_quality.cached_scene', return_value=failed), \
-                 patch.object(pipeline, 'request_image_bytes') as request:
-                with self.assertRaisesRegex(RuntimeError, 'still contains readable text'):
+                 patch('image_quality.inspect', return_value=passed), \
+                 patch.object(pipeline, 'request_image_bytes', return_value=b'fallback') as request:
+                pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
+            request.assert_called_once()
+            self.assertIn('completely different visual concept', request.call_args.args[0]['prompt'])
+            self.assertTrue((assets / 'scene-001.prompt-text-fallback.txt').exists())
+            report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
+            self.assertEqual(report['attempt'], 3)
+            self.assertEqual(report['first_detected_text'], [{'text': 'BAD'}])
+            self.assertEqual(report['second_detected_text'], [{'text': 'WRNG'}])
+
+    def test_failed_text_safe_fallback_still_blocks(self):
+        failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+                  'image_sha256': 'same', 'prompt_signature': 'signature'}
+        still_failed = {'passed': False, 'detected_text': [{'text': 'NOPE'}], 'image_sha256': 'new'}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); assets = root / 'assets'; assets.mkdir()
+            image = assets / 'scene-001.png'; image.write_bytes(b'image')
+            with patch('image_quality.cached_scene', return_value=failed), \
+                 patch('image_quality.inspect', return_value=still_failed), \
+                 patch.object(pipeline, 'request_image_bytes', return_value=b'fallback'):
+                with self.assertRaisesRegex(RuntimeError, 'after the text-safe fallback'):
                     pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
-            request.assert_not_called()
 
 
 if __name__ == '__main__':

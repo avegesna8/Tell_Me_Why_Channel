@@ -445,6 +445,15 @@ def text_free_retry_prompt(prompt):
             "color shapes or purely pictorial symbols. Do not attempt to spell any word.")
 
 
+def text_safe_fallback_prompt(prompt):
+    return (prompt + "\nTEXT-SAFE FALLBACK: Use a completely different visual concept and composition for "
+            "the same narrated moment. Communicate the idea only through large physical objects, scenery, color, "
+            "lighting, and expressive poses. Do not include signs, posters, books, papers, packaging, maps, charts, "
+            "screens, interfaces, scoreboards, storefronts, uniforms with markings, or any other surface that could "
+            "contain writing. Use clean unmarked surfaces and simple geometric or natural forms. Absolutely no letters, "
+            "numbers, logos, labels, symbols resembling typography, or decorative pseudo-writing anywhere.")
+
+
 def request_image_bytes(payload, reference=None):
     endpoint = "/images/edits" if reference else "/images/generations"
     response = api_post("https://api.openai.com/v1", "OPENAI_API_KEY", endpoint, payload,
@@ -454,7 +463,7 @@ def request_image_bytes(payload, reference=None):
 
 
 def check_image_text(path, payload, reference, directory, stem, signature):
-    """OCR a scene and regenerate it at most once when readable text is detected."""
+    """OCR a scene, retry it, then use a different text-safe visual fallback."""
     from image_quality import cached_scene, inspect
     report_path = directory.parent / "image-quality.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else {"scenes": {}}
@@ -476,8 +485,22 @@ def check_image_text(path, payload, reference, directory, stem, signature):
         scene_report.update(attempt=2, prompt_signature=signature, first_detected_text=first_detected)
         report.setdefault("scenes", {})[stem] = scene_report
         save_json(report_path, report)
+    if not scene_report["passed"] and scene_report.get("attempt") == 2:
+        first_detected = scene_report.get("first_detected_text", [])
+        second_detected = scene_report["detected_text"]
+        words = ", ".join(item["text"] for item in second_detected[:5])
+        print(f"OCR still found text in {stem} ({words}); generating a different text-safe visual…", flush=True)
+        fallback = {**payload, "prompt": text_safe_fallback_prompt(payload["prompt"])}
+        atomic_write(directory / f"{stem}.prompt-text-fallback.txt", fallback["prompt"].encode())
+        atomic_write(path, request_image_bytes(fallback, reference))
+        scene_report = inspect(path)
+        scene_report.update(attempt=3, prompt_signature=signature,
+                            first_detected_text=first_detected,
+                            second_detected_text=second_detected)
+        report.setdefault("scenes", {})[stem] = scene_report
+        save_json(report_path, report)
     if not scene_report["passed"]:
-        raise RuntimeError(f"{stem} still contains readable text after one regeneration. "
+        raise RuntimeError(f"{stem} still contains readable text after the text-safe fallback. "
                            "Review image-quality.json; later images were not generated.")
 
 
