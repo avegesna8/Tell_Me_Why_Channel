@@ -169,9 +169,9 @@ class AutomationTests(unittest.TestCase):
                 events.append('instagram-short'); upload_state['id'] = 'ig-short'
             fb.publish_instagram_reel.side_effect = instagram_short
             tik = Mock()
-            def tiktok_short(path, upload_state, save):
+            def tiktok_short(path, metadata, upload_state, save, **kwargs):
                 events.append('tiktok-short'); upload_state.update(publish_id='tt-short', uploaded=True)
-            tik.upload_draft.side_effect = tiktok_short
+            tik.upload_private.side_effect = tiktok_short
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
                  patch('automation.queue_runner.Meta', return_value=fb), \
@@ -223,7 +223,7 @@ class AutomationTests(unittest.TestCase):
             fb.upload_reel_draft.side_effect = lambda path, metadata, state, save: state.update(id='fb-short', finished=True)
             fb.publish_instagram_reel.side_effect = lambda path, metadata, state, save: state.update(id='ig-short')
             tik = Mock()
-            tik.upload_draft.side_effect = lambda path, state, save: state.update(publish_id='tt-short', uploaded=True)
+            tik.upload_private.side_effect = lambda path, metadata, state, save, **kwargs: state.update(publish_id='tt-short', uploaded=True)
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
                  patch('automation.queue_runner.Meta', return_value=fb), \

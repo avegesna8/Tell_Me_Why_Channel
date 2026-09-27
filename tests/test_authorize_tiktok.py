@@ -39,7 +39,7 @@ def test_begin_writes_private_state_and_builds_scoped_url(tmp_path):
     url = begin(settings(), state_file)
     assert state_file.exists()
     assert "client_key=client-key" in url
-    assert "user.info.basic%2Cvideo.upload" in url
+    assert "user.info.basic%2Cvideo.publish" in url
     assert "redirect_uri=https%3A%2F%2Fexample.com%2Ftiktok-callback.html" in url
 
 
@@ -52,7 +52,7 @@ def test_exchange_validates_state_and_returns_tokens(tmp_path):
         "access_token": "access",
         "refresh_token": "refresh",
         "open_id": "account",
-        "scope": "user.info.basic,video.upload",
+        "scope": "user.info.basic,video.publish",
     })
 
     result = exchange(settings(), result_file, state_file, session=session)

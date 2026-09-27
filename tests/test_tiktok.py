@@ -49,6 +49,50 @@ class TikTokTests(unittest.TestCase):
         self.assertEqual(session.post.call_args_list[1].kwargs["data"]["refresh_token"], "github-recovery-token")
         self.assertEqual(state["refresh_token"], "rotated")
 
+    def test_direct_posts_private_video_with_approved_metadata(self):
+        client = self.make_client()
+        client.session.post.side_effect = [
+            response(payload={"data": {"privacy_level_options": ["SELF_ONLY"]}}),
+            response(payload={"data": {
+                "publish_id": "private-1",
+                "upload_url": "https://open-upload.tiktokapis.com/video/id",
+            }}),
+        ]
+        client.session.put.return_value = response(status=201)
+        state = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"
+            video.write_bytes(b"video")
+            publish_id = client.upload_private(
+                video,
+                {"caption": "Why does this happen?", "hashtags": ["Learn On TikTok", "science"]},
+                state,
+                Mock(),
+                synthetic=True,
+            )
+        self.assertEqual(publish_id, "private-1")
+        self.assertTrue(state["uploaded"])
+        self.assertEqual(state["privacy_level"], "SELF_ONLY")
+        self.assertEqual(state["delivery_status"], "private_post_submitted")
+        init = client.session.post.call_args_list[1]
+        self.assertTrue(init.args[0].endswith("/v2/post/publish/video/init/"))
+        self.assertEqual(init.kwargs["json"]["post_info"]["privacy_level"], "SELF_ONLY")
+        self.assertTrue(init.kwargs["json"]["post_info"]["is_aigc"])
+        self.assertIn("#LearnOnTikTok", init.kwargs["json"]["post_info"]["title"])
+        self.assertFalse(client.session.put.call_args.kwargs["allow_redirects"])
+
+    def test_direct_post_requires_private_visibility_option(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"privacy_level_options": ["PUBLIC_TO_EVERYONE"]}
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"
+            video.write_bytes(b"video")
+            with self.assertRaisesRegex(RuntimeError, "does not currently allow private"):
+                client.upload_private(video, {"caption": "Caption", "hashtags": []}, {}, Mock())
+        client.session.put.assert_not_called()
+
     def test_uploads_one_file_as_inbox_draft(self):
         client = self.make_client()
         client.session.post.return_value = response(payload={

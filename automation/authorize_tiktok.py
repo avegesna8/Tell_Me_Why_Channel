@@ -14,7 +14,7 @@ from dotenv import dotenv_values, set_key
 
 AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
-DEFAULT_SCOPES = ("user.info.basic", "video.upload")
+DEFAULT_SCOPES = ("user.info.basic", "video.publish")
 DEFAULT_STATE_FILE = Path(".tiktok-oauth-state.json")
 
 

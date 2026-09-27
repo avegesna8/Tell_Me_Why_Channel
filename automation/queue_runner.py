@@ -133,13 +133,15 @@ def email_summary(item, project, state, save, kind):
         'tiktok': {
             'short': {
                 'publish_id': tiktok.get('publish_id'),
-                'status': tiktok.get('delivery_status') or ('inbox_draft' if tiktok.get('uploaded') else 'not_uploaded'),
+                'status': tiktok.get('delivery_status') or ('private_post' if tiktok.get('uploaded') else 'not_uploaded'),
                 'metadata': publishing_metadata['tiktok'],
                 'cover_file': 'short/covers/tiktok.jpg',
                 'next_step': (
                     'Download short/video.mp4 from the review artifact and upload it manually with the prepared caption, hashtags and cover.'
                     if tiktok.get('skipped') else
-                    'Open the TikTok inbox notification, apply the prepared caption/hashtags and cover, then publish.'
+                    'The approved Short was submitted to TikTok with SELF_ONLY visibility; review it on the Tell Me Why profile.'
+                    if tiktok.get('uploaded') else
+                    'Approval will submit the Short to TikTok with SELF_ONLY visibility.'
                 ),
             }
         },
@@ -183,7 +185,7 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to upload YouTube privately, create Facebook drafts, publish the Instagram Reel live, and send the TikTok draft; '
+         'approve to upload YouTube privately, create Facebook drafts, publish the Instagram Reel live, and post the TikTok Short privately; '
          'regenerate to create a completely new version, '
          'regenerate_thumbnail to replace only the thumbnail, or delete to permanently discard the package without uploading. '
          'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
@@ -471,10 +473,12 @@ def process(item, queue, root, states, save, cloud=None):
         if not tiktok_complete:
             platform_credentials = states.setdefault('_platform_credentials', {})
             tik = TikTok(platform_credentials.setdefault('tiktok', {}), save)
-            tik.upload_draft(
+            tik.upload_private(
                 project/'short'/'video.mp4',
+                social_meta['tiktok'],
                 state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {}),
                 save,
+                synthetic=item['contains_synthetic_media'],
             )
 
         state['status'] = 'uploaded'

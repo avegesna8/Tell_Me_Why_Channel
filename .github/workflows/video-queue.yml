@@ -24,7 +24,7 @@ on:
         required: false
         type: string
       recover_tiktok_init:
-        description: 'Retry a confirmed TikTok initialization failure that occurred before any video bytes were sent'
+        description: 'Retry a confirmed TikTok Direct Post initialization failure before any video bytes were sent'
         type: boolean
         default: false
       skip_tiktok:
