@@ -174,6 +174,15 @@ class SoundtrackTests(unittest.TestCase):
                 (location/'soundtrack.json').write_text('{"credits":["Music by Example, CC BY"]}')
             value={kind:{'title':'Test','description':'An explanation.','tags':['test'],'thumbnail_prompt':'Art'}
                    for kind in ('long','short')}
+            value['platforms'] = {
+                'facebook_long': {'title': 'Why Does This Happen?', 'description': 'A clear explanation.'},
+                'facebook_reel': {'caption': 'Here is the surprising reason.', 'hashtags': ['Explained'],
+                                  'cover_text': 'The Real Reason'},
+                'tiktok': {'caption': 'The answer is stranger than it looks.', 'hashtags': ['LearnOnTikTok'],
+                           'cover_text': 'Why It Happens'},
+                'instagram': {'caption': 'A visual explanation of the answer.', 'hashtags': ['Explainer'],
+                              'cover_text': 'The Hidden Answer'},
+            }
             response=Mock();response.json.return_value={'status':'completed','output':[{'content':[
                 {'type':'output_text','text':json.dumps(value)}]}]}
             with patch.object(p,'api_post',return_value=response) as api:
@@ -181,6 +190,9 @@ class SoundtrackTests(unittest.TestCase):
             instructions=api.call_args.args[3]['instructions']
             self.assertIn('simple, natural, thought-provoking questions',instructions)
             self.assertIn('Why Do Airplanes Leave White Trails in the Sky?',instructions)
+            self.assertIn('3–6 topic-specific hashtags', instructions)
+            schema = api.call_args.args[3]['text']['format']['schema']
+            self.assertIn('platforms', schema['properties'])
             saved=json.loads((root/'metadata.json').read_text())
             self.assertEqual(saved['long']['description'].count('Music by Example, CC BY'),1)
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from automation.queue_runner import choose_item, validate_queue, process, email_summary
+from automation.queue_runner import choose_item, validate_queue, process, email_summary, platform_metadata
 from automation.youtube import YouTube
 import pipeline as p
 
@@ -20,6 +20,15 @@ def response(status, body=None, headers=None):
 
 
 class AutomationTests(unittest.TestCase):
+    def test_legacy_metadata_gets_platform_specific_fallback(self):
+        value = {kind: {'title': 'Why Does It Work?', 'description': 'Explanation',
+                        'tags': ['science fact', 'learning']}
+                 for kind in ('long', 'short')}
+        result = platform_metadata(value)
+        self.assertEqual(result['facebook_long']['title'], 'Why Does It Work?')
+        self.assertEqual(result['tiktok']['hashtags'], ['sciencefact', 'learning'])
+        self.assertEqual(result['instagram']['cover_text'], 'Why Does It Work')
+
     def test_fifo_blocks_later_items_until_first_complete(self):
         q = {'items': [item(), {**item(), 'id': 'second'}]}
         self.assertEqual(choose_item(q, {'imax-001': {'status': 'awaiting_approval'}})['id'], 'imax-001')

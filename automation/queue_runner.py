@@ -68,6 +68,34 @@ def review_digest(item, project):
         ('id', 'publish_at', 'short_publish_at', 'made_for_kids', 'contains_synthetic_media')}})
 
 
+def platform_metadata(value):
+    if value.get('platforms'):
+        return value['platforms']
+    # Backward compatibility for packages generated before platform-specific copy.
+    tags = [re.sub(r'[^A-Za-z0-9]', '', tag) for tag in value['short'].get('tags', [])]
+    tags = [tag for tag in tags if tag]
+    cover = ' '.join(value['short']['title'].replace('?', '').split()[:4])
+    social = {
+        'caption': value['short']['description'],
+        'hashtags': tags,
+        'cover_text': cover,
+    }
+    return {
+        'facebook_long': {
+            'title': value['long']['title'],
+            'description': value['long']['description'],
+        },
+        'facebook_reel': {**social, 'hashtags': tags[:5]},
+        'tiktok': {**social, 'hashtags': tags[:6]},
+        'instagram': {**social, 'hashtags': tags[:8]},
+    }
+
+
+def social_description(post):
+    hashtags = ' '.join('#' + re.sub(r'[^A-Za-z0-9]', '', tag)
+                        for tag in post.get('hashtags', []) if tag)
+    return post['caption'] + (('\n\n' + hashtags) if hashtags else '')
+
 def email_summary(item, project, state, save, kind):
     key = 'email_' + kind
     if state.get(key) == 'sent':
@@ -82,8 +110,7 @@ def email_summary(item, project, state, save, kind):
     platforms = state.get('platform_uploads', {})
     facebook = platforms.get('facebook', {})
     tiktok = platforms.get('tiktok', {}).get('short', {})
-    instagram_tags = ' '.join('#' + re.sub(r'[^A-Za-z0-9]', '', tag)
-                              for tag in generated_metadata['short'].get('tags', []) if tag)[:500]
+    publishing_metadata = platform_metadata(generated_metadata)
     report = {
         'idea': item['idea'],
         'metadata': generated_metadata,
@@ -91,8 +118,10 @@ def email_summary(item, project, state, save, kind):
                         'privacy_status': 'private'}
                     for k, value in state.get('uploads', {}).items() if value.get('id')},
         'facebook': {
-            'long': {'id': facebook.get('long', {}).get('id'), 'status': 'unpublished'},
-            'short': {'id': facebook.get('short', {}).get('id'), 'status': 'reel_draft'},
+            'long': {'id': facebook.get('long', {}).get('id'), 'status': 'unpublished',
+                     'metadata': publishing_metadata['facebook_long']},
+            'short': {'id': facebook.get('short', {}).get('id'), 'status': 'reel_draft',
+                      'metadata': publishing_metadata['facebook_reel']},
             'manage_url': (f"https://business.facebook.com/latest/content?asset_id={os.getenv('META_PAGE_ID')}"
                            if facebook else None),
         },
@@ -100,16 +129,16 @@ def email_summary(item, project, state, save, kind):
             'short': {
                 'publish_id': tiktok.get('publish_id'),
                 'status': tiktok.get('delivery_status') or ('inbox_draft' if tiktok.get('uploaded') else 'not_uploaded'),
-                'next_step': 'Open the TikTok inbox notification to edit and publish the draft.',
+                'metadata': publishing_metadata['tiktok'],
+                'next_step': 'Open the TikTok inbox notification, apply the prepared caption/hashtags and cover, then publish.',
             }
         },
         'instagram': {
             'status': 'manual_upload_required',
             'account_id': os.getenv('META_INSTAGRAM_ACCOUNT_ID'),
             'video_file': 'short/video.mp4',
-            'caption': generated_metadata['short']['description'],
-            'hashtags': instagram_tags,
-            'next_step': 'Download the Short from this email or workflow artifact and publish it in Instagram.',
+            'metadata': publishing_metadata['instagram'],
+            'next_step': 'Download the Short, apply the prepared caption/hashtags and cover, then publish it in Instagram.',
         },
         'workflow_run': ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' +
                          os.environ['GITHUB_RUN_ID']) if os.getenv('GITHUB_RUN_ID') else None,
@@ -276,6 +305,7 @@ def process(item, queue, root, states, save, cloud=None):
     tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded')
     if not (youtube_complete and facebook_complete and tiktok_complete):
         meta = json.loads((project/'metadata.json').read_text())
+        social_meta = platform_metadata(meta)
         state.update(status='publishing')
         save()
         # Recover only definitive YouTube initiation failures. Network ambiguity
@@ -323,10 +353,14 @@ def process(item, queue, root, states, save, cloud=None):
             facebook = state.setdefault('platform_uploads', {}).setdefault('facebook', {})
             fb = Meta()
             fb.upload_unpublished_video(
-                project/'video.mp4', meta['long'], facebook.setdefault('long', {}), save,
+                project/'video.mp4', social_meta['facebook_long'], facebook.setdefault('long', {}), save,
             )
+            facebook_reel = {
+                'title': social_meta['facebook_reel']['cover_text'],
+                'description': social_description(social_meta['facebook_reel']),
+            }
             fb.upload_reel_draft(
-                project/'short'/'video.mp4', meta['short'], facebook.setdefault('short', {}), save,
+                project/'short'/'video.mp4', facebook_reel, facebook.setdefault('short', {}), save,
             )
 
         if not tiktok_complete:
