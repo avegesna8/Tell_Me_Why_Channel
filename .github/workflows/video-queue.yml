@@ -127,6 +127,7 @@ jobs:
             ${{ steps.production.outputs.project }}/short/script.txt
             ${{ steps.production.outputs.project }}/metadata.json
             ${{ steps.production.outputs.project }}/thumbnail.jpg
+            ${{ steps.production.outputs.project }}/short/covers/*.jpg
             ${{ steps.production.outputs.project }}/upload-details.json
             ${{ steps.production.outputs.project }}/soundtrack.json
             ${{ steps.production.outputs.project }}/short/soundtrack.json

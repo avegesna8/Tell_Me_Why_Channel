@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -44,8 +45,11 @@ class Meta:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         return hashlib.sha256((digest + str(metadata)).encode()).hexdigest()
 
-    def upload_unpublished_video(self, path, metadata, state, save):
-        signature = self._signature(path, metadata)
+    def upload_unpublished_video(self, path, metadata, state, save, thumbnail=None):
+        signature_metadata = dict(metadata)
+        if thumbnail:
+            signature_metadata['thumbnail_sha256'] = hashlib.sha256(Path(thumbnail).read_bytes()).hexdigest()
+        signature = self._signature(path, signature_metadata)
         if state.get("signature") and state["signature"] != signature:
             raise ValueError("Facebook long video or metadata changed after upload started.")
         if state.get("id"):
@@ -54,7 +58,12 @@ class Meta:
             raise RuntimeError("Facebook long-video upload outcome is unknown; inspect Meta Business Suite before retrying.")
         state.update(started=True, signature=signature)
         save()
-        with Path(path).open("rb") as video:
+        with ExitStack() as stack:
+            video = stack.enter_context(Path(path).open("rb"))
+            files = {"source": ("video.mp4", video, "video/mp4")}
+            if thumbnail:
+                cover = stack.enter_context(Path(thumbnail).open("rb"))
+                files["thumb"] = ("thumbnail.jpg", cover, "image/jpeg")
             response = self.session.post(
                 f"{VIDEO_ROOT}/{self.page_id}/videos",
                 data={
@@ -63,7 +72,7 @@ class Meta:
                     "title": metadata["title"],
                     "description": metadata["description"],
                 },
-                files={"source": ("video.mp4", video, "video/mp4")},
+                files=files,
                 timeout=(15, 1800),
             )
         try:

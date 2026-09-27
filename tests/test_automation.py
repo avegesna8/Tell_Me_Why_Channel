@@ -159,7 +159,7 @@ class AutomationTests(unittest.TestCase):
                 return upload_state['id']
             yt.upload.side_effect = upload
             fb = Mock()
-            def facebook_long(path, metadata, upload_state, save):
+            def facebook_long(path, metadata, upload_state, save, **kwargs):
                 events.append('facebook-long'); upload_state['id'] = 'fb-long'
             def facebook_short(path, metadata, upload_state, save):
                 events.append('facebook-short'); upload_state.update(id='fb-short', finished=True)
@@ -215,7 +215,7 @@ class AutomationTests(unittest.TestCase):
             yt.upload.side_effect = upload
             yt.thumbnail.side_effect = RuntimeError('HTTP 403 (forbidden)')
             fb = Mock()
-            fb.upload_unpublished_video.side_effect = lambda path, metadata, state, save: state.update(id='fb-long')
+            fb.upload_unpublished_video.side_effect = lambda path, metadata, state, save, **kwargs: state.update(id='fb-long')
             fb.upload_reel_draft.side_effect = lambda path, metadata, state, save: state.update(id='fb-short', finished=True)
             tik = Mock()
             tik.upload_draft.side_effect = lambda path, state, save: state.update(publish_id='tt-short', uploaded=True)

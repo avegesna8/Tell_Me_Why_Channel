@@ -143,3 +143,52 @@ def thumbnail(project, meta, comments=""):
                   '-frames:v', '1', '-q:v', '3', str(path)])
     p.save_json(stamp, {'signature': signature})
     return path
+
+
+
+def social_covers(project, platforms):
+    """Render platform-specific vertical covers without another image API call."""
+    source = project / 'short' / 'assets' / 'scene-001.png'
+    if not source.exists():
+        raise ValueError('The first Short scene is missing; cannot build social covers.')
+    font = os.getenv('COVER_FONT') or next((candidate for candidate in (
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+    ) if Path(candidate).exists()), None)
+    if not font:
+        raise RuntimeError('Install DejaVu Sans Bold or set COVER_FONT to render social covers.')
+    directory = project / 'short' / 'covers'
+    directory.mkdir(parents=True, exist_ok=True)
+    outputs = {}
+    for platform, metadata_key in (
+        ('facebook', 'facebook_reel'), ('instagram', 'instagram'), ('tiktok', 'tiktok')
+    ):
+        words = platforms[metadata_key]['cover_text'].strip().upper().split()
+        midpoint = (len(words) + 1) // 2
+        text = ' '.join(words[:midpoint]) + ('\n' + ' '.join(words[midpoint:]) if words[midpoint:] else '')
+        path = directory / f'{platform}.jpg'
+        signature = p.fingerprint({
+            'source': p.hashlib.sha256(source.read_bytes()).hexdigest(),
+            'text': text,
+            'font': font,
+        })
+        stamp = directory / f'{platform}-source.json'
+        if path.exists() and stamp.exists() and json.loads(stamp.read_text()).get('signature') == signature:
+            outputs[platform] = path
+            continue
+        text_file = directory / f'.{platform}-cover-text.txt'
+        text_file.write_text(text)
+        try:
+            vf = (
+                'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,'
+                'drawbox=x=70:y=220:w=940:h=430:color=black@0.58:t=fill,'
+                f"drawtext=fontfile='{font}':textfile='{text_file}':fontcolor=white:fontsize=104:"
+                'line_spacing=20:borderw=6:bordercolor=black@0.8:'
+                'x=(w-text_w)/2:y=435-(text_h/2)'
+            )
+            p.run_ffmpeg(['-i', str(source), '-vf', vf, '-frames:v', '1', '-q:v', '2', str(path)])
+        finally:
+            text_file.unlink(missing_ok=True)
+        p.save_json(stamp, {'signature': signature})
+        outputs[platform] = path
+    return outputs

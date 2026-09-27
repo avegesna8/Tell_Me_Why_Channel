@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 import pipeline as p
-from automation.production import metadata, thumbnail
+from automation.production import metadata, social_covers, thumbnail
 from automation.youtube import YouTube
 from automation.meta import Meta
 from automation.tiktok import TikTok
@@ -56,7 +56,9 @@ def choose_item(queue, state):
 
 
 def review_digest(item, project):
-    files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg', 'script.txt', 'short/script.txt', 'script-quality.json']
+    files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg',
+             'short/covers/facebook.jpg', 'short/covers/instagram.jpg', 'short/covers/tiktok.jpg',
+             'script.txt', 'short/script.txt', 'script-quality.json']
     files += [name for name in ('speech-text.txt', 'speech-preparation.json', 'production-review.json',
                                      'short/production-review.json') if (project / name).exists()]
     hashes = {}
@@ -120,8 +122,10 @@ def email_summary(item, project, state, save, kind):
                     for k, value in state.get('uploads', {}).items() if value.get('id')},
         'facebook': {
             'long': {'id': facebook.get('long', {}).get('id'), 'status': 'unpublished',
-                     'metadata': publishing_metadata['facebook_long']},
+                     'thumbnail': 'thumbnail.jpg', 'metadata': publishing_metadata['facebook_long']},
             'short': {'id': facebook.get('short', {}).get('id'), 'status': 'reel_draft',
+                      'cover_file': 'short/covers/facebook.jpg',
+                      'cover_step': 'Select the attached Facebook cover while reviewing the Reel draft.',
                       'metadata': publishing_metadata['facebook_reel']},
             'manage_url': (f"https://business.facebook.com/latest/content?asset_id={os.getenv('META_PAGE_ID')}"
                            if facebook else None),
@@ -131,6 +135,7 @@ def email_summary(item, project, state, save, kind):
                 'publish_id': tiktok.get('publish_id'),
                 'status': tiktok.get('delivery_status') or ('inbox_draft' if tiktok.get('uploaded') else 'not_uploaded'),
                 'metadata': publishing_metadata['tiktok'],
+                'cover_file': 'short/covers/tiktok.jpg',
                 'next_step': (
                     'Download short/video.mp4 from the review artifact and upload it manually with the prepared caption, hashtags and cover.'
                     if tiktok.get('skipped') else
@@ -142,6 +147,7 @@ def email_summary(item, project, state, save, kind):
             'status': 'manual_upload_required',
             'account_id': os.getenv('META_INSTAGRAM_ACCOUNT_ID'),
             'video_file': 'short/video.mp4',
+            'cover_file': 'short/covers/instagram.jpg',
             'metadata': publishing_metadata['instagram'],
             'next_step': 'Download the Short, apply the prepared caption/hashtags and cover, then publish it in Instagram.',
         },
@@ -177,7 +183,9 @@ def email_summary(item, project, state, save, kind):
          'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
          'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
          'Replies to this email are not processed.' if kind == 'review' else ''))
-    for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
+    for file in [project/'upload-details.json', project/'thumbnail.jpg',
+                 project/'short/covers/facebook.jpg', project/'short/covers/instagram.jpg',
+                 project/'short/covers/tiktok.jpg', project/'script.txt', project/'short/script.txt',
                  project/'script-quality.json', project/'speech-text.txt', project/'speech-preparation.json',
                  project/'production-review.json', project/'short/production-review.json',
                  project/'narration-quality.json', project/'short/narration-quality.json',
@@ -326,7 +334,14 @@ def process(item, queue, root, states, save, cloud=None):
         metadata(project)
         thumbnail(project, json.loads((project/'metadata.json').read_text())['long'],
                   comments=state.get('regeneration_comments', ''))
+        generated = json.loads((project/'metadata.json').read_text())
+        social_covers(project, platform_metadata(generated))
         state['status'] = 'ready'; save()
+    cover_paths = [project/'short/covers'/f'{name}.jpg' for name in ('facebook', 'instagram', 'tiktok')]
+    if (project/'short/assets/scene-001.png').exists() and not all(path.exists() for path in cover_paths):
+        generated = json.loads((project/'metadata.json').read_text())
+        social_covers(project, platform_metadata(generated))
+        save()
     if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
         if state.get('review_digest') != digest:
@@ -411,6 +426,7 @@ def process(item, queue, root, states, save, cloud=None):
             fb = Meta()
             fb.upload_unpublished_video(
                 project/'video.mp4', social_meta['facebook_long'], facebook.setdefault('long', {}), save,
+                thumbnail=project/'thumbnail.jpg',
             )
             facebook_reel = {
                 'title': social_meta['facebook_reel']['cover_text'],

@@ -30,6 +30,20 @@ class MetaTests(unittest.TestCase):
         self.assertEqual(result, "video-id")
         self.assertEqual(client.session.post.call_args.kwargs["data"]["published"], "false")
 
+    def test_long_video_includes_custom_thumbnail(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={"id": "video-id"})
+        state = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            cover = Path(tmp) / "thumbnail.jpg"; cover.write_bytes(b"jpeg")
+            client.upload_unpublished_video(
+                video, {"title": "Title", "description": "Text"}, state, Mock(), thumbnail=cover
+            )
+        files = client.session.post.call_args.kwargs["files"]
+        self.assertEqual(set(files), {"source", "thumb"})
+        self.assertEqual(files["thumb"][0], "thumbnail.jpg")
+
     def test_short_finishes_as_reel_draft(self):
         client = self.make_client()
         client.session.post.side_effect = [
