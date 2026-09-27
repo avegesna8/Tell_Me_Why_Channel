@@ -76,6 +76,18 @@ class TikTokTests(unittest.TestCase):
             video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
             self.assertEqual(client.upload_draft(video, {}, Mock()), "draft-1")
 
+    def test_accepts_nested_tiktok_owned_upload_subdomain(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"publish_id": "draft-1", "upload_url":
+                     "https://sandbox.upload.us.tiktokapis.com/video/?upload_id=1"}
+        })
+        client.session.put.return_value = response(status=201)
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            self.assertEqual(client.upload_draft(video, {}, Mock()), "draft-1")
+        self.assertFalse(client.session.put.call_args.kwargs["allow_redirects"])
+
     def test_rejects_lookalike_upload_host(self):
         client = self.make_client()
         client.session.post.return_value = response(payload={

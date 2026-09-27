@@ -4,15 +4,13 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-import re
 from urllib.parse import urlparse
 
 import requests
 
 
 API_ROOT = "https://open.tiktokapis.com"
-UPLOAD_HOST = "open-upload.tiktokapis.com"
-REGIONAL_UPLOAD_HOST = re.compile(r"upload\.[a-z0-9-]+\.tiktokapis\.com\Z")
+UPLOAD_DOMAIN = "tiktokapis.com"
 
 
 class TikTok:
@@ -122,10 +120,14 @@ class TikTok:
                 raise
             upload_url = data["upload_url"]
             parsed = urlparse(upload_url)
-            valid_host = parsed.hostname == UPLOAD_HOST or bool(
-                parsed.hostname and REGIONAL_UPLOAD_HOST.fullmatch(parsed.hostname)
-            )
-            if parsed.scheme != "https" or not valid_host:
+            host = (parsed.hostname or "").casefold()
+            valid_host = host == UPLOAD_DOMAIN or host.endswith("." + UPLOAD_DOMAIN)
+            try:
+                valid_port = parsed.port in (None, 443)
+            except ValueError:
+                valid_port = False
+            if (parsed.scheme != "https" or not valid_host or not valid_port
+                    or parsed.username is not None or parsed.password is not None):
                 state.pop("started", None)
                 state.pop("signature", None)
                 save()
@@ -156,8 +158,9 @@ class TikTok:
                 },
                 data=video,
                 timeout=(15, 600),
+                allow_redirects=False,
             )
-        if not response.ok:
+        if response.status_code not in (200, 201, 206):
             raise RuntimeError(
                 f"TikTok video transfer failed (HTTP {response.status_code}). "
                 "Inspect the TikTok inbox before retrying."
