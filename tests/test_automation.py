@@ -165,6 +165,9 @@ class AutomationTests(unittest.TestCase):
                 events.append('facebook-short'); upload_state.update(id='fb-short', finished=True)
             fb.upload_unpublished_video.side_effect = facebook_long
             fb.upload_reel_draft.side_effect = facebook_short
+            def instagram_short(path, metadata, upload_state, save):
+                events.append('instagram-short'); upload_state['id'] = 'ig-short'
+            fb.publish_instagram_reel.side_effect = instagram_short
             tik = Mock()
             def tiktok_short(path, upload_state, save):
                 events.append('tiktok-short'); upload_state.update(publish_id='tt-short', uploaded=True)
@@ -176,7 +179,7 @@ class AutomationTests(unittest.TestCase):
                  patch('automation.queue_runner.email_summary', side_effect=lambda *args: events.append('email')):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             self.assertEqual(events, ['youtube-long', 'youtube-short', 'facebook-long',
-                                      'facebook-short', 'tiktok-short', 'email'])
+                                      'facebook-short', 'instagram-short', 'tiktok-short', 'email'])
             self.assertEqual(yt.configure_defaults.call_count, 2)
             self.assertTrue(states['imax-001']['uploads']['long']['defaults_set'])
             self.assertTrue(states['imax-001']['uploads']['short']['defaults_set'])
@@ -192,6 +195,7 @@ class AutomationTests(unittest.TestCase):
                 'long': {'id': 'yt-long'}, 'short': {'id': 'yt-short'}},
                 'platform_uploads': {'facebook': {
                     'long': {'id': 'fb-long'}, 'short': {'id': 'fb-short', 'finished': True}},
+                    'instagram': {'short': {'id': 'ig-short'}},
                     'tiktok': {'short': {'started': True, 'signature': 'safe-pre-upload'}}}}}
             with patch.dict('os.environ', {'SKIP_TIKTOK_UPLOAD': '1'}), \
                  patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.TikTok') as tik:
@@ -217,6 +221,7 @@ class AutomationTests(unittest.TestCase):
             fb = Mock()
             fb.upload_unpublished_video.side_effect = lambda path, metadata, state, save, **kwargs: state.update(id='fb-long')
             fb.upload_reel_draft.side_effect = lambda path, metadata, state, save: state.update(id='fb-short', finished=True)
+            fb.publish_instagram_reel.side_effect = lambda path, metadata, state, save: state.update(id='ig-short')
             tik = Mock()
             tik.upload_draft.side_effect = lambda path, state, save: state.update(publish_id='tt-short', uploaded=True)
             states = {'imax-001': {'status': 'ready'}}

@@ -144,12 +144,17 @@ def email_summary(item, project, state, save, kind):
             }
         },
         'instagram': {
-            'status': 'manual_upload_required',
+            'status': ('published' if platforms.get('instagram', {}).get('short', {}).get('id') else 'not_published'),
+            'id': platforms.get('instagram', {}).get('short', {}).get('id'),
+            'url': platforms.get('instagram', {}).get('short', {}).get('permalink'),
             'account_id': os.getenv('META_INSTAGRAM_ACCOUNT_ID'),
             'video_file': 'short/video.mp4',
             'cover_file': 'short/covers/instagram.jpg',
             'metadata': publishing_metadata['instagram'],
-            'next_step': 'Download the Short, apply the prepared caption/hashtags and cover, then publish it in Instagram.',
+            'cover_behavior': 'Instagram uses the video frame at 1.0 seconds; its publishing API cannot use the attached local cover without a public cover URL.',
+            'next_step': ('The approved Reel is already live; use Instagram for later edits.'
+                          if platforms.get('instagram', {}).get('short', {}).get('id') else
+                          'Approving this package publishes the Reel directly to Instagram.'),
         },
         'workflow_run': ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' +
                          os.environ['GITHUB_RUN_ID']) if os.getenv('GITHUB_RUN_ID') else None,
@@ -178,7 +183,8 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to stage the videos on all configured platforms, regenerate to create a completely new version, '
+         'approve to upload YouTube privately, create Facebook drafts, publish the Instagram Reel live, and send the TikTok draft; '
+         'regenerate to create a completely new version, '
          'regenerate_thumbnail to replace only the thumbnail, or delete to permanently discard the package without uploading. '
          'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
          'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
@@ -373,9 +379,11 @@ def process(item, queue, root, states, save, cloud=None):
     facebook_complete = legacy_uploaded or (
         facebook_state.get('long', {}).get('id') and facebook_state.get('short', {}).get('finished')
     )
+    instagram_state = state.get('platform_uploads', {}).get('instagram', {}).get('short', {})
+    instagram_complete = legacy_uploaded or instagram_state.get('id')
     tiktok_state = state.get('platform_uploads', {}).get('tiktok', {}).get('short', {})
     tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded') or tiktok_state.get('skipped')
-    if not (youtube_complete and facebook_complete and tiktok_complete):
+    if not (youtube_complete and facebook_complete and instagram_complete and tiktok_complete):
         meta = json.loads((project/'metadata.json').read_text())
         social_meta = platform_metadata(meta)
         state.update(status='publishing')
@@ -421,9 +429,11 @@ def process(item, queue, root, states, save, cloud=None):
                         save()
                         print('Custom thumbnail could not be applied; continuing with private uploads.', flush=True)
 
+        meta_client = None
         if not facebook_complete:
             facebook = state.setdefault('platform_uploads', {}).setdefault('facebook', {})
-            fb = Meta()
+            meta_client = Meta()
+            fb = meta_client
             fb.upload_unpublished_video(
                 project/'video.mp4', social_meta['facebook_long'], facebook.setdefault('long', {}), save,
                 thumbnail=project/'thumbnail.jpg',
@@ -434,6 +444,17 @@ def process(item, queue, root, states, save, cloud=None):
             }
             fb.upload_reel_draft(
                 project/'short'/'video.mp4', facebook_reel, facebook.setdefault('short', {}), save,
+            )
+
+        if not instagram_complete:
+            if meta_client is None:
+                meta_client = Meta()
+            instagram_post = social_meta['instagram']
+            meta_client.publish_instagram_reel(
+                project/'short'/'video.mp4',
+                {'description': social_description(instagram_post)},
+                state.setdefault('platform_uploads', {}).setdefault('instagram', {}).setdefault('short', {}),
+                save,
             )
 
         if not tiktok_complete and os.getenv('SKIP_TIKTOK_UPLOAD') == '1':

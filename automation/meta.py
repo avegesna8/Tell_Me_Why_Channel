@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,6 +20,7 @@ class Meta:
     def __init__(self, session=None):
         self.session = session or requests.Session()
         self.page_id = os.environ["META_PAGE_ID"]
+        self.instagram_id = os.getenv("META_INSTAGRAM_ACCOUNT_ID")
         self.session.headers["Authorization"] = "Bearer " + os.environ["META_PAGE_ACCESS_TOKEN"]
 
     @staticmethod
@@ -147,6 +149,114 @@ class Meta:
         self.check(response, "Reel draft finish")
         state["finished"] = True
         save()
+        return state["id"]
+
+    def publish_instagram_reel(self, path, metadata, state, save):
+        """Upload and publish an approved Reel to the connected Instagram account."""
+        if not self.instagram_id:
+            raise ValueError("Set META_INSTAGRAM_ACCOUNT_ID before publishing to Instagram.")
+        signature = self._signature(path, metadata)
+        if state.get("signature") and state["signature"] != signature:
+            raise ValueError("Instagram Reel or metadata changed after publishing started.")
+        if state.get("id"):
+            return state["id"]
+        size = Path(path).stat().st_size
+
+        if not state.get("container_id"):
+            if state.get("started"):
+                raise RuntimeError("Instagram Reel initiation outcome is unknown; inspect Instagram before retrying.")
+            state.update(started=True, signature=signature)
+            save()
+            response = self.session.post(
+                f"{GRAPH_ROOT}/{self.instagram_id}/media",
+                data={
+                    "media_type": "REELS",
+                    "upload_type": "resumable",
+                    "caption": metadata["description"],
+                    "share_to_feed": "true",
+                    "thumb_offset": "1000",
+                },
+                timeout=60,
+            )
+            try:
+                payload = self.check(response, "Instagram Reel initiation")
+            except RuntimeError:
+                state.pop("started", None)
+                state.pop("signature", None)
+                save()
+                raise
+            upload_url = payload.get("uri") or payload.get("upload_url")
+            parsed = urlparse(upload_url or "")
+            if parsed.scheme != "https" or parsed.hostname != "rupload.facebook.com":
+                raise RuntimeError("Meta returned an unexpected Instagram upload host.")
+            state.update(container_id=str(payload["id"]), upload_url=upload_url)
+            save()
+
+        if state.get("upload_started") and not state.get("uploaded"):
+            raise RuntimeError("Instagram Reel byte-upload outcome is unknown; inspect Instagram before retrying.")
+        if not state.get("uploaded"):
+            state["upload_started"] = True
+            save()
+            with Path(path).open("rb") as video:
+                response = self.session.post(
+                    state["upload_url"],
+                    headers={"offset": "0", "file_size": str(size)},
+                    data=video,
+                    timeout=(15, 900),
+                )
+            try:
+                self.check(response, "Instagram Reel transfer")
+            except RuntimeError:
+                state.pop("upload_started", None)
+                save()
+                raise
+            state["uploaded"] = True
+            state.pop("upload_url", None)
+            save()
+
+        for _ in range(120):
+            response = self.session.get(
+                f"{GRAPH_ROOT}/{state['container_id']}",
+                params={"fields": "status_code,status"},
+                timeout=60,
+            )
+            payload = self.check(response, "Instagram Reel processing status")
+            status = payload.get("status_code")
+            if status == "FINISHED":
+                break
+            if status in ("ERROR", "EXPIRED"):
+                raise RuntimeError(f"Instagram Reel processing ended with status {status}.")
+            time.sleep(5)
+        else:
+            raise RuntimeError("Instagram Reel processing did not finish within ten minutes; retry to resume.")
+
+        if state.get("publishing_started"):
+            raise RuntimeError("Instagram publish outcome is unknown; inspect the Instagram profile before retrying.")
+        state["publishing_started"] = True
+        save()
+        response = self.session.post(
+            f"{GRAPH_ROOT}/{self.instagram_id}/media_publish",
+            data={"creation_id": state["container_id"]},
+            timeout=60,
+        )
+        try:
+            payload = self.check(response, "Instagram Reel publish")
+        except RuntimeError:
+            state.pop("publishing_started", None)
+            save()
+            raise
+        state["id"] = str(payload["id"])
+        save()
+        response = self.session.get(
+            f"{GRAPH_ROOT}/{state['id']}", params={"fields": "permalink"}, timeout=60
+        )
+        try:
+            details = self.check(response, "Instagram Reel permalink")
+        except RuntimeError:
+            details = {}
+        if details.get("permalink"):
+            state["permalink"] = details["permalink"]
+            save()
         return state["id"]
 
     def business_suite_url(self):
