@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+from functools import lru_cache
 from pathlib import Path
 import re
 import subprocess
@@ -27,20 +28,35 @@ def ocr_image(path, *, executable="tesseract", minimum_confidence=72):
     return found
 
 
-def tolerable_fallback_text(detected):
-    """Allow only one short OCR match after the dedicated text-safe fallback."""
-    substantial = []
+@lru_cache(maxsize=1)
+def english_words():
+    candidates = (Path("/usr/share/dict/words"), Path("/usr/share/dict/american-english"))
+    for path in candidates:
+        if path.is_file():
+            return {word.strip().casefold() for word in path.read_text(errors="ignore").splitlines()
+                    if word.strip().isalpha()}
+    raise RuntimeError("Install an English word list (wamerican) for image spelling checks.")
+
+
+def suspicious_text(detected, allowed_text="", dictionary=None):
+    """Return OCR words that look misspelled rather than merely readable."""
+    dictionary = english_words() if dictionary is None else {word.casefold() for word in dictionary}
+    allowed = {word.casefold() for word in re.findall(r"[A-Za-z0-9]+", allowed_text)}
+    suspicious = []
     for item in detected:
-        compact = re.sub(r"[^A-Za-z0-9]", "", str(item.get("text", "")))
-        if len(compact) >= 4:
-            substantial.append(compact)
-    return not substantial or (len(substantial) == 1 and len(substantial[0]) <= 6)
+        compact = re.sub(r"[^A-Za-z]", "", str(item.get("text", "")))
+        word = compact.casefold()
+        if len(word) < 4 or word in dictionary or word in allowed:
+            continue
+        suspicious.append(item)
+    return suspicious
 
 
-def inspect(path):
+def inspect(path, allowed_text=""):
     path = Path(path)
     detected = ocr_image(path)
-    return {"passed": not detected, "detected_text": detected,
+    suspicious = suspicious_text(detected, allowed_text)
+    return {"passed": not suspicious, "detected_text": detected, "suspicious_text": suspicious,
             "image_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 

@@ -434,15 +434,15 @@ def image_prompt(board, scene):
             "Use detailed drawings of the scene's actual objects and environment, with clear visual hierarchy. "
             "If a reference is supplied, do not copy its empty canvas or tiny character placement. "
             f"Compose for a {board['aspect_ratio']} center crop, keeping essential details inside the safe area. "
-            "No motion blur, collage, subtitles, watermarks or added lettering.\n"
+            "No motion blur, collage, subtitles or watermarks.\n"
             f"STORY CONTEXT:\n{json.dumps(context, ensure_ascii=False, indent=2)}")
 
 
-def text_free_retry_prompt(prompt):
-    return (prompt + "\nQUALITY CORRECTION: The previous illustration accidentally contained lettering. "
-            "Create a fresh composition with absolutely no readable text, letters, numbers, captions, labels, "
-            "logos, signs, interface words, or typographic marks anywhere. Replace signs and screens with blank "
-            "color shapes or purely pictorial symbols. Do not attempt to spell any word.")
+def spelling_retry_prompt(prompt, suspicious):
+    words = ", ".join(item["text"] for item in suspicious[:8])
+    return (prompt + "\nSPELLING CORRECTION: OCR flagged these likely misspellings in the previous image: " + words + ". "
+            "Create a fresh composition. Visible text is allowed, but every word must be intentional, clearly "
+            "legible, and correctly spelled. Do not create pseudo-writing or invented letter shapes.")
 
 
 def text_safe_fallback_prompt(prompt):
@@ -463,52 +463,51 @@ def request_image_bytes(payload, reference=None):
 
 
 def check_image_text(path, payload, reference, directory, stem, signature):
-    """OCR a scene, retry it, then use a different text-safe visual fallback."""
+    """Allow valid image text; retry misspellings before using a text-safe fallback."""
     from image_quality import cached_scene, inspect
     report_path = directory.parent / "image-quality.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else {"scenes": {}}
     scene_report = cached_scene(report_path, stem, path, signature)
     if scene_report is None:
-        print(f"Checking {stem} for accidental text…", flush=True)
-        scene_report = inspect(path)
+        print(f"Checking {stem} for misspelled text…", flush=True)
+        scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=1, prompt_signature=signature)
         report.setdefault("scenes", {})[stem] = scene_report
         save_json(report_path, report)
+    if scene_report is not None and "suspicious_text" not in scene_report:
+        history = {key: value for key, value in scene_report.items()
+                   if key in ("attempt", "first_detected_text", "second_detected_text")}
+        scene_report = inspect(path, payload["prompt"])
+        scene_report.update(prompt_signature=signature, **history)
+        report.setdefault("scenes", {})[stem] = scene_report
+        save_json(report_path, report)
     if not scene_report["passed"] and scene_report.get("attempt") == 1:
-        first_detected = scene_report["detected_text"]
+        first_detected = scene_report["suspicious_text"]
         words = ", ".join(item["text"] for item in first_detected[:5])
-        print(f"OCR found text in {stem} ({words}); regenerating that scene once…", flush=True)
-        retry = {**payload, "prompt": text_free_retry_prompt(payload["prompt"])}
+        print(f"OCR found likely misspellings in {stem} ({words}); regenerating with spelling correction…", flush=True)
+        retry = {**payload, "prompt": spelling_retry_prompt(payload["prompt"], first_detected)}
         atomic_write(directory / f"{stem}.prompt-text-retry.txt", retry["prompt"].encode())
         atomic_write(path, request_image_bytes(retry, reference))
-        scene_report = inspect(path)
+        scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=2, prompt_signature=signature, first_detected_text=first_detected)
         report.setdefault("scenes", {})[stem] = scene_report
         save_json(report_path, report)
     if not scene_report["passed"] and scene_report.get("attempt") == 2:
         first_detected = scene_report.get("first_detected_text", [])
-        second_detected = scene_report["detected_text"]
+        second_detected = scene_report["suspicious_text"]
         words = ", ".join(item["text"] for item in second_detected[:5])
-        print(f"OCR still found text in {stem} ({words}); generating a different text-safe visual…", flush=True)
+        print(f"OCR still found likely misspellings in {stem} ({words}); generating a text-free visual…", flush=True)
         fallback = {**payload, "prompt": text_safe_fallback_prompt(payload["prompt"])}
         atomic_write(directory / f"{stem}.prompt-text-fallback.txt", fallback["prompt"].encode())
         atomic_write(path, request_image_bytes(fallback, reference))
-        scene_report = inspect(path)
+        scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=3, prompt_signature=signature,
                             first_detected_text=first_detected,
                             second_detected_text=second_detected)
         report.setdefault("scenes", {})[stem] = scene_report
         save_json(report_path, report)
-    if not scene_report["passed"] and scene_report.get("attempt") == 3:
-        from image_quality import tolerable_fallback_text
-        if tolerable_fallback_text(scene_report["detected_text"]):
-            scene_report.update(passed=True, accepted_ocr_warning=True)
-            report.setdefault("scenes", {})[stem] = scene_report
-            save_json(report_path, report)
-            words = ", ".join(item["text"] for item in scene_report["detected_text"][:5])
-            print(f"Accepting weak OCR matches in the text-safe {stem} fallback ({words}).", flush=True)
     if not scene_report["passed"]:
-        raise RuntimeError(f"{stem} still contains substantial readable text after the text-safe fallback. "
+        raise RuntimeError(f"{stem} still contains likely misspelled text after the text-safe fallback. "
                            "Review image-quality.json; later images were not generated.")
 
 

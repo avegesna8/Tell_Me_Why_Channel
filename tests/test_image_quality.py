@@ -19,18 +19,26 @@ class ImageQualityTests(unittest.TestCase):
         with patch.object(image_quality.subprocess, 'run', return_value=completed):
             self.assertEqual(image_quality.ocr_image('scene.png'), [{'text': 'HELLO', 'confidence': 96.2}])
 
-    def test_final_fallback_tolerates_one_short_substantial_match(self):
-        self.assertTrue(image_quality.tolerable_fallback_text([
-            {'text': 'cul'}, {'text': 'Reach'}, {'text': 'Flu'}]))
-        self.assertFalse(image_quality.tolerable_fallback_text([
-            {'text': 'Cultural'}, {'text': 'Influence'}]))
-        self.assertFalse(image_quality.tolerable_fallback_text([
-            {'text': 'Creatilvity'}]))
+    def test_spelling_check_allows_words_names_and_short_ocr_noise(self):
+        detected = [{'text': word, 'confidence': 90} for word in
+                    ('Reach', 'YouTube', 'cul', 'Cluitural', 'Creatilvity')]
+        suspicious = image_quality.suspicious_text(
+            detected, allowed_text='A story about YouTube.', dictionary={'reach', 'story', 'about'})
+        self.assertEqual([item['text'] for item in suspicious], ['Cluitural', 'Creatilvity'])
 
-    def test_text_free_retry_prompt_forbids_typography(self):
-        prompt = pipeline.text_free_retry_prompt('Draw a theater.')
-        self.assertIn('absolutely no readable text', prompt)
-        self.assertIn('blank color shapes', prompt)
+    def test_first_image_prompt_does_not_ban_lettering(self):
+        board = {'title': 'Example', 'style_guide': 'Ink', 'aspect_ratio': '16:9',
+                 'scenes': [{'id': 1, 'narration': 'Hello', 'prompt': 'A shop sign',
+                             'camera_style': 'wide', 'mood': 'bright'}]}
+        prompt = pipeline.image_prompt(board, board['scenes'][0])
+        self.assertNotIn('added lettering', prompt)
+        self.assertNotIn('absolutely no readable text', prompt)
+
+    def test_spelling_retry_allows_text_but_demands_correct_spelling(self):
+        prompt = pipeline.spelling_retry_prompt('Draw a theater.', [{'text': 'THEATR'}])
+        self.assertIn('Visible text is allowed', prompt)
+        self.assertIn('correctly spelled', prompt)
+        self.assertNotIn('absolutely no readable text', prompt)
 
     def test_text_safe_fallback_avoids_text_bearing_objects(self):
         prompt = pipeline.text_safe_fallback_prompt('Draw an office.')
@@ -38,10 +46,11 @@ class ImageQualityTests(unittest.TestCase):
         self.assertIn('Do not include signs, posters, books', prompt)
         self.assertIn('Absolutely no letters', prompt)
 
-    def test_flagged_scene_is_regenerated_only_once(self):
+    def test_flagged_scene_retries_with_spelling_correction(self):
         failed = {'passed': False, 'detected_text': [{'text': 'WRNG', 'confidence': 91}],
-                  'image_sha256': 'old'}
-        passed = {'passed': True, 'detected_text': [], 'image_sha256': 'new'}
+                  'suspicious_text': [{'text': 'WRNG', 'confidence': 91}], 'image_sha256': 'old'}
+        passed = {'passed': True, 'detected_text': [{'text': 'RIGHT'}],
+                  'suspicious_text': [], 'image_sha256': 'new'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'old')
@@ -51,16 +60,18 @@ class ImageQualityTests(unittest.TestCase):
                  patch.object(pipeline, 'request_image_bytes', return_value=b'new') as request:
                 pipeline.check_image_text(image, payload, None, assets, 'scene-001', 'signature')
             request.assert_called_once()
+            self.assertIn('Visible text is allowed', request.call_args.args[0]['prompt'])
             self.assertEqual(image.read_bytes(), b'new')
             report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
             self.assertTrue(report['passed'])
             self.assertEqual(report['attempt'], 2)
 
-    def test_second_failed_attempt_uses_different_text_safe_visual(self):
+    def test_second_misspelling_attempt_uses_text_safe_visual(self):
         failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+                  'suspicious_text': [{'text': 'WRNG'}],
                   'first_detected_text': [{'text': 'BAD'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
-        passed = {'passed': True, 'detected_text': [], 'image_sha256': 'fallback'}
+        passed = {'passed': True, 'detected_text': [], 'suspicious_text': [], 'image_sha256': 'fallback'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'image')
@@ -70,38 +81,39 @@ class ImageQualityTests(unittest.TestCase):
                 pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
             request.assert_called_once()
             self.assertIn('completely different visual concept', request.call_args.args[0]['prompt'])
-            self.assertTrue((assets / 'scene-001.prompt-text-fallback.txt').exists())
             report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
             self.assertEqual(report['attempt'], 3)
-            self.assertEqual(report['first_detected_text'], [{'text': 'BAD'}])
-            self.assertEqual(report['second_detected_text'], [{'text': 'WRNG'}])
 
-    def test_cached_third_attempt_accepts_weak_ocr_without_new_image_request(self):
-        weak = {'passed': False, 'attempt': 3,
-                'detected_text': [{'text': 'cul'}, {'text': 'Reach'}, {'text': 'Flu'}],
-                'image_sha256': 'same', 'prompt_signature': 'signature'}
+    def test_legacy_cached_report_is_rechecked_under_spelling_policy_without_regeneration(self):
+        legacy = {'passed': False, 'attempt': 3,
+                  'detected_text': [{'text': 'cul'}, {'text': 'Reach'}, {'text': 'Flu'}],
+                  'image_sha256': 'same', 'prompt_signature': 'signature'}
+        passed = {'passed': True, 'detected_text': legacy['detected_text'],
+                  'suspicious_text': [], 'image_sha256': 'same'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'image')
-            with patch('image_quality.cached_scene', return_value=weak), \
+            with patch('image_quality.cached_scene', return_value=legacy), \
+                 patch('image_quality.inspect', return_value=passed), \
                  patch.object(pipeline, 'request_image_bytes') as request:
                 pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
             request.assert_not_called()
             report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
             self.assertTrue(report['passed'])
-            self.assertTrue(report['accepted_ocr_warning'])
 
-    def test_failed_text_safe_fallback_still_blocks(self):
+    def test_failed_text_safe_fallback_still_blocks_misspellings(self):
         failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+                  'suspicious_text': [{'text': 'WRNG'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
-        still_failed = {'passed': False, 'detected_text': [{'text': 'NOPE'}, {'text': 'WORDS'}], 'image_sha256': 'new'}
+        still_failed = {'passed': False, 'detected_text': [{'text': 'Mispeling'}],
+                        'suspicious_text': [{'text': 'Mispeling'}], 'image_sha256': 'new'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'image')
             with patch('image_quality.cached_scene', return_value=failed), \
                  patch('image_quality.inspect', return_value=still_failed), \
                  patch.object(pipeline, 'request_image_bytes', return_value=b'fallback'):
-                with self.assertRaisesRegex(RuntimeError, 'substantial readable text'):
+                with self.assertRaisesRegex(RuntimeError, 'likely misspelled text'):
                     pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
 
 
