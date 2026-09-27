@@ -22,8 +22,15 @@ class NarrationSectionTests(unittest.TestCase):
                 for index in range(1, count + 1)]
 
     def test_short_narration_stays_in_one_call(self):
-        scenes = self.scenes(2, 70)
+        scenes = self.scenes(2, 50)
         self.assertEqual(split_sections(scenes), [" ".join(scene["narration"] for scene in scenes)])
+
+    def test_one_minute_narration_splits_at_scene_boundaries(self):
+        scenes = self.scenes(11, 16)
+        sections = split_sections(scenes)
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(" ".join(sections), " ".join(scene["narration"] for scene in scenes))
+        self.assertTrue(all(section.endswith("ends.") for section in sections))
 
     def test_long_narration_splits_only_between_complete_scenes(self):
         scenes = self.scenes(12, 75)
@@ -31,7 +38,7 @@ class NarrationSectionTests(unittest.TestCase):
         self.assertGreater(len(sections), 1)
         self.assertEqual(" ".join(sections), " ".join(scene["narration"] for scene in scenes))
         self.assertTrue(all(section.endswith("ends.") for section in sections))
-        self.assertTrue(all(70 <= len(section.split()) <= 180 for section in sections))
+        self.assertTrue(all(52 <= len(section.split()) <= 135 for section in sections))
 
     def test_section_generation_is_resumable(self):
         runpod = Mock()

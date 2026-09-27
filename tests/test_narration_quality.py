@@ -28,6 +28,13 @@ class NarrationQualityTests(unittest.TestCase):
         self.assertEqual(fraction, 1)
         self.assertEqual(wanted, heard)
 
+    def test_initialisms_and_typographic_contractions_compare_cleanly(self):
+        fraction, wanted, heard = transcript_match(
+            "The U.S. isn't changing today’s plan.",
+            [{'word': word} for word in "The US isn't changing today's plan".split()])
+        self.assertEqual(fraction, 1)
+        self.assertEqual(wanted, heard)
+
 
     def test_repeated_phrase_lowers_match_score(self):
         recognized = [{'word': word} for word in 'one two two two three'.split()]
@@ -50,6 +57,16 @@ class NarrationQualityTests(unittest.TestCase):
                              transcriber=lambda *_: [{'word': 'unrelated', 'start': 0, 'end': 1}])
             self.assertFalse(report['passed'])
             self.assertGreaterEqual(len(report['failures']), 2)
+
+    def test_long_garbled_phrase_fails_even_when_total_match_is_high(self):
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / 'voice.wav'; self.make_wav(audio)
+            expected = ' '.join(['clear'] * 50 + ['allowing corruption to spread under his administration'] + ['clear'] * 50)
+            heard = ' '.join(['clear'] * 50 + ['unrelated sounds'] + ['clear'] * 50)
+            report = inspect(audio, expected, transcriber=lambda *_: [
+                {'word': word, 'start': 0, 'end': .1} for word in heard.split()])
+            self.assertFalse(report['passed'])
+            self.assertTrue(any('phrase of' in failure for failure in report['failures']))
 
     def test_signal_reports_clipping(self):
         with tempfile.TemporaryDirectory() as temp:

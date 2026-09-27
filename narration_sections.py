@@ -3,7 +3,7 @@ import math
 from pathlib import Path
 
 
-def split_sections(scenes, *, threshold=225, target=145, minimum=100, maximum=180):
+def split_sections(scenes, *, threshold=150, target=105, minimum=75, maximum=135):
     texts = [scene['narration'].strip() for scene in scenes]
     total = sum(len(text.split()) for text in texts)
     if total <= threshold:

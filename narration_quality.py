@@ -14,6 +14,10 @@ def _tokens(text):
     # IndexTTS phoneme annotations look like <GTA|JH IY1 . T IY1 . EY1>.
     # Whisper should be compared with the visible term, not the ARPABET payload.
     text = re.sub(r"<([^<>|]+)\|[^<>]+>", r"\1", text)
+    # Whisper commonly returns initialisms and contractions as one token while
+    # authored copy may contain periods or typographic apostrophes.
+    text = re.sub(r"\b(?:[A-Za-z]\.){2,}", lambda match: match.group().replace(".", ""), text)
+    text = text.replace("’", "'").replace("‘", "'")
     return re.findall(r"[\w']+", text.casefold())
 
 
@@ -77,13 +81,17 @@ def inspect(audio, expected, model="small", *, transcriber=None):
     words = (transcriber or transcribe)(audio, model)
     matched, wanted, heard = transcript_match(expected, words)
     comparison = SequenceMatcher(None, wanted, heard, autojunk=False)
+    mismatch_ops = [(tag, a, b, c, d) for tag, a, b, c, d in comparison.get_opcodes() if tag != "equal"]
     mismatches = [{"expected": " ".join(wanted[a:b]), "recognized": " ".join(heard[c:d])}
-                  for tag, a, b, c, d in comparison.get_opcodes() if tag != "equal"][:12]
+                  for _tag, a, b, c, d in mismatch_ops][:12]
+    longest_expected_mismatch = max((b - a for _tag, a, b, _c, _d in mismatch_ops), default=0)
     warnings, failures = [], []
     if matched < 0.88:
         failures.append(f"Whisper matched only {matched:.0%} of the intended narration")
     elif matched < 0.94:
         warnings.append(f"Whisper matched {matched:.0%}; review names and acronyms")
+    if longest_expected_mismatch >= 6:
+        failures.append(f"a phrase of {longest_expected_mismatch} intended words was missing or garbled")
     if signal["leading_silence_seconds"] > 1.5:
         warnings.append("long silence at the beginning")
     if signal["trailing_silence_seconds"] > 2.0:
