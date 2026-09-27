@@ -11,7 +11,12 @@
   <main>
     <div class="eyebrow">Tell Me Why</div>
     <h1 id="title">TikTok authorization received</h1>
-    <p class="lede" id="message">Return to the setup tool to finish connecting the account.</p>
+    <p class="lede" id="message">Download the one-time result, then return to the setup process.</p>
+    <section class="card" id="success-card">
+      <h2>Finish connecting TikTok</h2>
+      <p>This file contains a short-lived, one-time authorization code. Keep it private.</p>
+      <button id="download" type="button">Download authorization result</button>
+    </section>
     <section class="card" id="error-card" hidden>
       <h2>Authorization was not completed</h2>
       <p id="error-message"></p>
@@ -24,12 +29,27 @@
   <footer><p>Support: <a href="mailto:abhinn.varma@gmail.com">abhinn.varma@gmail.com</a></p></footer>
   <script>
     const parameters = new URLSearchParams(window.location.search);
-    const error = parameters.get('error_description') || parameters.get('error');
-    if (error) {
+    const result = Object.fromEntries(parameters.entries());
+    const error = result.error_description || result.error;
+    if (error || !result.code || !result.state) {
       document.getElementById('title').textContent = 'TikTok authorization failed';
-      document.getElementById('message').textContent = 'Return to the setup tool and try again.';
-      document.getElementById('error-message').textContent = error;
+      document.getElementById('message').textContent = 'Return to the setup process and try again.';
+      document.getElementById('error-message').textContent = error || 'TikTok did not return the required authorization information.';
       document.getElementById('error-card').hidden = false;
+      document.getElementById('success-card').hidden = true;
+    } else {
+      document.getElementById('download').addEventListener('click', () => {
+        const blob = new Blob([JSON.stringify({
+          code: result.code,
+          state: result.state,
+          scopes: result.scopes || ''
+        })], {type: 'application/json'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'tiktok-authorization.json';
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
     }
   </script>
 </body>

@@ -31,3 +31,4 @@ audio/music/
 audio/sfx/
 
 .queue-web.lock
+.tiktok-oauth-state.json
