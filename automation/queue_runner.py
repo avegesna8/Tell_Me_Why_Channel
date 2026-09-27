@@ -330,7 +330,7 @@ def process(item, queue, root, states, save, cloud=None):
             )
 
         if not tiktok_complete:
-            platform_credentials = state.setdefault('platform_credentials', {})
+            platform_credentials = states.setdefault('_platform_credentials', {})
             tik = TikTok(platform_credentials.setdefault('tiktok', {}), save)
             tik.upload_draft(
                 project/'short'/'video.mp4',

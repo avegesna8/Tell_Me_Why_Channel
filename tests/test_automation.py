@@ -172,6 +172,7 @@ class AutomationTests(unittest.TestCase):
             self.assertTrue(states['imax-001']['uploads']['long']['defaults_set'])
             self.assertTrue(states['imax-001']['uploads']['short']['defaults_set'])
             self.assertEqual(states['imax-001']['status'], 'done')
+            self.assertIn('tiktok', states['_platform_credentials'])
 
     def test_thumbnail_rejection_does_not_block_other_platforms(self):
         with tempfile.TemporaryDirectory() as tmp:
