@@ -148,7 +148,7 @@ def email_summary(item, project, state, save, kind):
         'instagram': {
             'status': ('published' if platforms.get('instagram', {}).get('short', {}).get('id') else 'not_published'),
             'id': platforms.get('instagram', {}).get('short', {}).get('id'),
-            'url': platforms.get('instagram', {}).get('short', {}).get('permalink'),
+            'url': 'https://www.instagram.com/tellmewhyexplained/?hl=en',
             'account_id': os.getenv('META_INSTAGRAM_ACCOUNT_ID'),
             'video_file': 'short/video.mp4',
             'cover_file': 'short/covers/instagram.jpg',
