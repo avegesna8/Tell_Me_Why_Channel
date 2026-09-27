@@ -1,24 +1,35 @@
-"""Split long narration at natural scene boundaries and join verified WAV sections."""
+"""Split narration at natural sentence boundaries and join verified WAV sections."""
 import math
 from pathlib import Path
+import re
 
 
-def split_sections(scenes, *, threshold=150, target=105, minimum=75, maximum=135):
-    texts = [scene['narration'].strip() for scene in scenes]
-    total = sum(len(text.split()) for text in texts)
+def _sentences(text):
+    # Protect initials and dotted initialisms ("Warren G. Harding", "U.S.")
+    # before splitting on terminal punctuation.
+    marker = "<PERIOD>"
+    protected = re.sub(r"\b([A-Z])\.", rf"\1{marker}", text)
+    parts = re.split(r"(?<=[.!?])\s+", protected.strip())
+    return [part.replace(marker, ".").strip() for part in parts if part.strip()]
+
+
+def split_sections(scenes, *, threshold=100, target=65, minimum=40, maximum=85):
+    text = ' '.join(scene['narration'].strip() for scene in scenes)
+    total = len(text.split())
     if total <= threshold:
-        return [' '.join(texts)]
+        return [text]
+    sentences = _sentences(text)
     groups, current, count = [], [], 0
-    for text in texts:
-        words = len(text.split())
-        if current and count >= minimum and count + words > target and current[-1].rstrip().endswith(('.', '?', '!', ';', ':')):
+    for sentence in sentences:
+        words = len(sentence.split())
+        if current and count >= minimum and count + words > target:
             groups.append(current); current, count = [], 0
         if current and count + words > maximum:
             groups.append(current); current, count = [], 0
-        current.append(text); count += words
+        current.append(sentence); count += words
     if current:
         groups.append(current)
-    # Avoid a tiny closing call by moving complete scene slots from the previous section.
+    # Avoid a tiny closing call by moving one complete sentence from the prior section.
     while len(groups) > 1 and sum(len(x.split()) for x in groups[-1]) < minimum * .7 and len(groups[-2]) > 1:
         groups[-1].insert(0, groups[-2].pop())
     return [' '.join(group) for group in groups]

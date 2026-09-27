@@ -25,12 +25,20 @@ class NarrationSectionTests(unittest.TestCase):
         scenes = self.scenes(2, 50)
         self.assertEqual(split_sections(scenes), [" ".join(scene["narration"] for scene in scenes)])
 
-    def test_one_minute_narration_splits_at_scene_boundaries(self):
+    def test_one_minute_narration_splits_at_sentence_boundaries(self):
         scenes = self.scenes(11, 16)
         sections = split_sections(scenes)
-        self.assertEqual(len(sections), 2)
+        self.assertEqual(len(sections), 3)
         self.assertEqual(" ".join(sections), " ".join(scene["narration"] for scene in scenes))
         self.assertTrue(all(section.endswith("ends.") for section in sections))
+
+    def test_does_not_split_after_initials_or_inside_a_sentence(self):
+        scenes = [{"narration": "Warren G. Harding served as president. " * 8},
+                  {"narration": "The U.S. changed over time. " * 8}]
+        sections = split_sections(scenes)
+        self.assertTrue(all(not section.endswith("Warren G.") for section in sections))
+        self.assertTrue(all(not section.endswith("The U.S.") for section in sections))
+        self.assertEqual(" ".join(sections), " ".join(scene["narration"].strip() for scene in scenes))
 
     def test_long_narration_splits_only_between_complete_scenes(self):
         scenes = self.scenes(12, 75)
@@ -38,7 +46,7 @@ class NarrationSectionTests(unittest.TestCase):
         self.assertGreater(len(sections), 1)
         self.assertEqual(" ".join(sections), " ".join(scene["narration"] for scene in scenes))
         self.assertTrue(all(section.endswith("ends.") for section in sections))
-        self.assertTrue(all(52 <= len(section.split()) <= 135 for section in sections))
+        self.assertTrue(all(52 <= len(section.split()) <= 85 for section in sections))
 
     def test_section_generation_is_resumable(self):
         runpod = Mock()

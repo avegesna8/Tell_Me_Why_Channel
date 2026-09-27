@@ -117,7 +117,13 @@ jobs:
             ${{ steps.production.outputs.project }}/image-quality.json
             ${{ steps.production.outputs.project }}/short/image-quality.json
             ${{ steps.production.outputs.project }}/narration-quality.json
+            ${{ steps.production.outputs.project }}/transcript.json
+            ${{ steps.production.outputs.project }}/assets/narration-part-*-quality.json
+            ${{ steps.production.outputs.project }}/assets/narration-part-*-transcript.json
             ${{ steps.production.outputs.project }}/short/narration-quality.json
+            ${{ steps.production.outputs.project }}/short/transcript.json
+            ${{ steps.production.outputs.project }}/short/assets/narration-part-*-quality.json
+            ${{ steps.production.outputs.project }}/short/assets/narration-part-*-transcript.json
       - name: Archive completed queue item
         if: steps.production.outputs.completed_item != ''
         env:
