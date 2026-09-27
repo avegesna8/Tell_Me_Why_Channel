@@ -23,14 +23,6 @@ on:
         description: 'Optional instructions for regenerating the full video or only its thumbnail'
         required: false
         type: string
-      recover_tiktok_init:
-        description: 'Retry a confirmed TikTok Direct Post initialization failure before any video bytes were sent'
-        type: boolean
-        default: false
-      skip_tiktok:
-        description: 'Finish other platforms and leave TikTok for manual upload'
-        type: boolean
-        default: false
   schedule:
     - cron: '17 13 * * *'
 concurrency:
@@ -49,8 +41,6 @@ jobs:
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
       REVIEW_COMMENTS: ${{ inputs.review_comments }}
-      TIKTOK_RECOVER_INIT: ${{ inputs.recover_tiktok_init && '1' || '' }}
-      SKIP_TIKTOK_UPLOAD: ${{ inputs.skip_tiktok && '1' || '' }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'
@@ -79,9 +69,6 @@ jobs:
       META_PAGE_ID: ${{ vars.META_PAGE_ID || secrets.META_PAGE_ID }}
       META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
       META_INSTAGRAM_ACCOUNT_ID: ${{ vars.META_INSTAGRAM_ACCOUNT_ID || secrets.META_INSTAGRAM_ACCOUNT_ID }}
-      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-      TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v3

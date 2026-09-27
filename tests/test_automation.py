@@ -168,25 +168,22 @@ class AutomationTests(unittest.TestCase):
             def instagram_short(path, metadata, upload_state, save):
                 events.append('instagram-short'); upload_state['id'] = 'ig-short'
             fb.publish_instagram_reel.side_effect = instagram_short
-            tik = Mock()
-            def tiktok_short(path, metadata, upload_state, save, **kwargs):
-                events.append('tiktok-short'); upload_state.update(publish_id='tt-short', uploaded=True)
-            tik.upload_private.side_effect = tiktok_short
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
                  patch('automation.queue_runner.Meta', return_value=fb), \
-                 patch('automation.queue_runner.TikTok', return_value=tik), \
                  patch('automation.queue_runner.email_summary', side_effect=lambda *args: events.append('email')):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             self.assertEqual(events, ['youtube-long', 'youtube-short', 'facebook-long',
-                                      'facebook-short', 'instagram-short', 'tiktok-short', 'email'])
+                                      'facebook-short', 'instagram-short', 'email'])
             self.assertEqual(yt.configure_defaults.call_count, 2)
             self.assertTrue(states['imax-001']['uploads']['long']['defaults_set'])
             self.assertTrue(states['imax-001']['uploads']['short']['defaults_set'])
             self.assertEqual(states['imax-001']['status'], 'done')
-            self.assertIn('tiktok', states['_platform_credentials'])
+            self.assertEqual(states['imax-001']['platform_uploads']['tiktok']['short']['delivery_status'],
+                             'manual_upload_required')
+            self.assertNotIn('_platform_credentials', states)
 
-    def test_explicit_tiktok_skip_finishes_other_platforms(self):
+    def test_tiktok_is_always_left_for_manual_studio_upload(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
             (project/'metadata.json').write_text(json.dumps({
@@ -197,15 +194,14 @@ class AutomationTests(unittest.TestCase):
                     'long': {'id': 'fb-long'}, 'short': {'id': 'fb-short', 'finished': True}},
                     'instagram': {'short': {'id': 'ig-short'}},
                     'tiktok': {'short': {'started': True, 'signature': 'safe-pre-upload'}}}}}
-            with patch.dict('os.environ', {'SKIP_TIKTOK_UPLOAD': '1'}), \
-                 patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.TikTok') as tik:
+            with patch('automation.queue_runner.email_summary'):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             short = states['imax-001']['platform_uploads']['tiktok']['short']
             self.assertTrue(short['skipped'])
             self.assertEqual(short['delivery_status'], 'manual_upload_required')
             self.assertNotIn('started', short)
+            self.assertNotIn('signature', short)
             self.assertEqual(states['imax-001']['status'], 'done')
-            tik.assert_not_called()
 
     def test_thumbnail_rejection_does_not_block_other_platforms(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -222,12 +218,9 @@ class AutomationTests(unittest.TestCase):
             fb.upload_unpublished_video.side_effect = lambda path, metadata, state, save, **kwargs: state.update(id='fb-long')
             fb.upload_reel_draft.side_effect = lambda path, metadata, state, save: state.update(id='fb-short', finished=True)
             fb.publish_instagram_reel.side_effect = lambda path, metadata, state, save: state.update(id='ig-short')
-            tik = Mock()
-            tik.upload_private.side_effect = lambda path, metadata, state, save, **kwargs: state.update(publish_id='tt-short', uploaded=True)
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
                  patch('automation.queue_runner.Meta', return_value=fb), \
-                 patch('automation.queue_runner.TikTok', return_value=tik), \
                  patch('automation.queue_runner.email_summary'):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             self.assertEqual(events, ['upload-long', 'upload-short'])

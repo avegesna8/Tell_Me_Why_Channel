@@ -21,7 +21,6 @@ import pipeline as p
 from automation.production import metadata, social_covers, thumbnail
 from automation.youtube import YouTube
 from automation.meta import Meta
-from automation.tiktok import TikTok
 
 
 def validate_queue(value):
@@ -112,7 +111,6 @@ def email_summary(item, project, state, save, kind):
     generated_metadata = json.loads((project/'metadata.json').read_text())
     platforms = state.get('platform_uploads', {})
     facebook = platforms.get('facebook', {})
-    tiktok = platforms.get('tiktok', {}).get('short', {})
     publishing_metadata = platform_metadata(generated_metadata)
     report = {
         'idea': item['idea'],
@@ -132,17 +130,19 @@ def email_summary(item, project, state, save, kind):
         },
         'tiktok': {
             'short': {
-                'publish_id': tiktok.get('publish_id'),
-                'status': tiktok.get('delivery_status') or ('private_post' if tiktok.get('uploaded') else 'not_uploaded'),
+                'status': 'manual_upload_required',
+                'studio_url': 'https://www.tiktok.com/tiktokstudio/upload',
+                'video_file': 'short-video.mp4',
+                'cover_file': 'short-cover-tiktok.jpg',
+                'caption_and_hashtags': social_description(publishing_metadata['tiktok']),
                 'metadata': publishing_metadata['tiktok'],
-                'cover_file': 'short/covers/tiktok.jpg',
-                'next_step': (
-                    'Download short/video.mp4 from the review artifact and upload it manually with the prepared caption, hashtags and cover.'
-                    if tiktok.get('skipped') else
-                    'The approved Short was submitted to TikTok with SELF_ONLY visibility; review it on the Tell Me Why profile.'
-                    if tiktok.get('uploaded') else
-                    'Approval will submit the Short to TikTok with SELF_ONLY visibility.'
-                ),
+                'ai_generated_content': item['contains_synthetic_media'],
+                'steps': [
+                    'Open TikTok Studio while signed into the Tell Me Why account.',
+                    'Upload short-video.mp4 (or download short/video.mp4 from the GitHub artifact).',
+                    'Paste caption_and_hashtags, select the attached cover, and set the appropriate AI-content disclosure.',
+                    'Review visibility and interaction settings, then publish or schedule manually.',
+                ],
             }
         },
         'instagram': {
@@ -178,14 +178,23 @@ def email_summary(item, project, state, save, kind):
                               'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate', 'regenerate_thumbnail', 'delete'],
                               'comments': 'Optional for regenerate or regenerate_thumbnail'}
     p.save_json(project / 'upload-details.json', report)
-    videos = [project/'video.mp4', project/'short/video.mp4']
-    attach_videos = sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024
-    video_note = ('Both videos are attached.' if attach_videos else
-                  'Download both videos from the video-review artifact on the workflow-run link below. '
-                  'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
+    long_video = project/'video.mp4'
+    short_video = project/'short/video.mp4'
+    videos = [long_video, short_video]
+    if sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024:
+        attached_videos = videos
+        video_note = 'Both videos are attached. Use short-video.mp4 for TikTok Studio.'
+    elif short_video.stat().st_size <= 12 * 1024 * 1024:
+        attached_videos = [short_video]
+        video_note = ('The TikTok Short is attached as short-video.mp4. Download the long video from the '
+                      'video-review artifact on the workflow-run link below.')
+    else:
+        attached_videos = []
+        video_note = ('Download short/video.mp4 and the long video from the video-review artifact on the workflow-run '
+                      'link below. The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to upload YouTube privately, create Facebook drafts, publish the Instagram Reel live, and post the TikTok Short privately; '
+         'approve to upload YouTube privately, create Facebook drafts, and publish the Instagram Reel live; TikTok remains a manual Studio upload using the attached package; '
          'regenerate to create a completely new version, '
          'regenerate_thumbnail to replace only the thumbnail, or delete to permanently discard the package without uploading. '
          'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
@@ -201,12 +210,13 @@ def email_summary(item, project, state, save, kind):
         if not file.exists():
             continue
         mime = ('image', 'jpeg') if file.suffix == '.jpg' else ('application', 'json') if file.suffix == '.json' else ('text', 'plain')
+        attachment_name = (f'short-cover-{file.name}' if file.parent.name == 'covers' else
+                           ('short-' if file.parent.name == 'short' else '') + file.name)
         message.add_attachment(file.read_bytes(), maintype=mime[0], subtype=mime[1],
-                               filename=('short-' if file.parent.name == 'short' else '') + file.name)
-    if attach_videos:
-        for file in videos:
-            message.add_attachment(file.read_bytes(), maintype='video', subtype='mp4',
-                                   filename='short-video.mp4' if file.parent.name == 'short' else 'long-video.mp4')
+                               filename=attachment_name)
+    for file in attached_videos:
+        message.add_attachment(file.read_bytes(), maintype='video', subtype='mp4',
+                               filename='short-video.mp4' if file.parent.name == 'short' else 'long-video.mp4')
     # Establish/authenticate before recording an ambiguous send attempt.
     with smtplib.SMTP(os.environ['SMTP_HOST'], int(os.getenv('SMTP_PORT', '587')), timeout=60) as client:
         client.starttls(context=ssl.create_default_context())
@@ -383,9 +393,13 @@ def process(item, queue, root, states, save, cloud=None):
     )
     instagram_state = state.get('platform_uploads', {}).get('instagram', {}).get('short', {})
     instagram_complete = legacy_uploaded or instagram_state.get('id')
-    tiktok_state = state.get('platform_uploads', {}).get('tiktok', {}).get('short', {})
-    tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded') or tiktok_state.get('skipped')
-    if not (youtube_complete and facebook_complete and instagram_complete and tiktok_complete):
+    tiktok_state = state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {})
+    if not tiktok_state.get('skipped'):
+        tiktok_state.update(skipped=True, delivery_status='manual_upload_required')
+        for key in ('started', 'signature', 'publish_id', 'upload_url', 'upload_started', 'uploaded'):
+            tiktok_state.pop(key, None)
+        save()
+    if not (youtube_complete and facebook_complete and instagram_complete):
         meta = json.loads((project/'metadata.json').read_text())
         social_meta = platform_metadata(meta)
         state.update(status='publishing')
@@ -457,28 +471,6 @@ def process(item, queue, root, states, save, cloud=None):
                 {'description': social_description(instagram_post)},
                 state.setdefault('platform_uploads', {}).setdefault('instagram', {}).setdefault('short', {}),
                 save,
-            )
-
-        if not tiktok_complete and os.getenv('SKIP_TIKTOK_UPLOAD') == '1':
-            tiktok_state = state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {})
-            if tiktok_state.get('upload_started'):
-                raise RuntimeError('TikTok byte-upload outcome is unknown; inspect TikTok before selecting manual upload.')
-            tiktok_state.update(skipped=True, delivery_status='manual_upload_required')
-            for key in ('started', 'signature', 'publish_id', 'upload_url'):
-                tiktok_state.pop(key, None)
-            save()
-            tiktok_complete = True
-            print('TikTok automation skipped; the Short remains available for manual upload.', flush=True)
-
-        if not tiktok_complete:
-            platform_credentials = states.setdefault('_platform_credentials', {})
-            tik = TikTok(platform_credentials.setdefault('tiktok', {}), save)
-            tik.upload_private(
-                project/'short'/'video.mp4',
-                social_meta['tiktok'],
-                state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {}),
-                save,
-                synthetic=item['contains_synthetic_media'],
             )
 
         state['status'] = 'uploaded'
