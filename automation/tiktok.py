@@ -10,7 +10,7 @@ import requests
 
 
 API_ROOT = "https://open.tiktokapis.com"
-UPLOAD_DOMAIN = "tiktokapis.com"
+UPLOAD_DOMAINS = {"tiktokapis.com", "tiktokapis.us"}
 
 
 class TikTok:
@@ -70,6 +70,18 @@ class TikTok:
     def _headers(self):
         return {"Authorization": f"Bearer {self.access_token}"}
 
+    @staticmethod
+    def _valid_upload_url(upload_url):
+        parsed = urlparse(upload_url)
+        host = (parsed.hostname or "").casefold()
+        valid_host = any(host == domain or host.endswith("." + domain) for domain in UPLOAD_DOMAINS)
+        try:
+            valid_port = parsed.port in (None, 443)
+        except ValueError:
+            valid_port = False
+        return (parsed.scheme == "https" and valid_host and valid_port
+                and parsed.username is None and parsed.password is None)
+
     def status(self, publish_id):
         response = self.session.post(
             f"{API_ROOT}/v2/post/publish/status/fetch/",
@@ -119,15 +131,7 @@ class TikTok:
                 save()
                 raise
             upload_url = data["upload_url"]
-            parsed = urlparse(upload_url)
-            host = (parsed.hostname or "").casefold()
-            valid_host = host == UPLOAD_DOMAIN or host.endswith("." + UPLOAD_DOMAIN)
-            try:
-                valid_port = parsed.port in (None, 443)
-            except ValueError:
-                valid_port = False
-            if (parsed.scheme != "https" or not valid_host or not valid_port
-                    or parsed.username is not None or parsed.password is not None):
+            if not self._valid_upload_url(upload_url):
                 state.pop("started", None)
                 state.pop("signature", None)
                 save()
@@ -146,6 +150,8 @@ class TikTok:
                 return state["publish_id"]
             raise RuntimeError("TikTok draft byte-upload outcome is unknown; inspect the TikTok inbox before retrying.")
 
+        if not self._valid_upload_url(state["upload_url"]):
+            raise RuntimeError("TikTok saved an unexpected upload host; no video bytes were sent.")
         state["upload_started"] = True
         save()
         with path.open("rb") as video:

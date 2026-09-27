@@ -76,6 +76,17 @@ class TikTokTests(unittest.TestCase):
             video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
             self.assertEqual(client.upload_draft(video, {}, Mock()), "draft-1")
 
+    def test_accepts_tiktok_us_upload_domain(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"publish_id": "draft-1", "upload_url":
+                     "https://open-upload.tiktokapis.us/video/?upload_id=1&upload_token=safe"}
+        })
+        client.session.put.return_value = response(status=201)
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            self.assertEqual(client.upload_draft(video, {}, Mock()), "draft-1")
+
     def test_accepts_nested_tiktok_owned_upload_subdomain(self):
         client = self.make_client()
         client.session.post.return_value = response(payload={
@@ -101,6 +112,15 @@ class TikTokTests(unittest.TestCase):
                 client.upload_draft(video, state, save)
         self.assertNotIn("started", state)
         self.assertNotIn("signature", state)
+        client.session.put.assert_not_called()
+
+    def test_revalidates_saved_upload_url_before_transfer(self):
+        client = self.make_client()
+        state = {"publish_id": "draft-1", "upload_url": "https://tiktokapis.us.attacker.example/video"}
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            with self.assertRaisesRegex(RuntimeError, "unexpected upload host"):
+                client.upload_draft(video, state, Mock())
         client.session.put.assert_not_called()
 
     def test_explicitly_recovers_confirmed_pre_upload_initiation(self):
