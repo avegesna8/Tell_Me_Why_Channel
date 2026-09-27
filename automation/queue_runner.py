@@ -520,7 +520,6 @@ def main():
             required += [
                 'YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN',
                 'META_PAGE_ID', 'META_PAGE_ACCESS_TOKEN',
-                'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET', 'TIKTOK_REFRESH_TOKEN',
             ]
         missing = [name for name in required if not os.getenv(name)]
         if missing:
