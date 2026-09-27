@@ -104,7 +104,8 @@ def email_summary(item, project, state, save, kind):
         raise RuntimeError('Previous email delivery outcome is unknown. Check inbox before changing its state; no duplicate email sent.')
     message = EmailMessage()
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
-    message['Subject'] = f"Video {kind}: {item['id']}"
+    subject_revision = f" — revision {state.get('revision', 1)}, thumbnail {state.get('thumbnail_revision', 1)}"
+    message['Subject'] = f"Video {kind}: {item['id']}{subject_revision}"
     message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.t{state.get('thumbnail_revision', 1)}.{kind}@video-automation.local>"
     generated_metadata = json.loads((project/'metadata.json').read_text())
     platforms = state.get('platform_uploads', {})
@@ -228,6 +229,9 @@ def apply_regeneration(item, state, save):
     if not code:
         raise ValueError('Regeneration requires the code from its review email.')
     if code in state.get('regeneration_requests', []):
+        comments = os.getenv('REVIEW_COMMENTS', '').strip()
+        if comments != state.get('regeneration_comments', ''):
+            raise ValueError('That approval code was already used with different regeneration comments. Use the latest review email code.')
         return  # Retried dispatch resumes that version, not another paid generation.
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Regenerate is available before uploading. Reconcile existing platform uploads first.')
@@ -253,6 +257,9 @@ def apply_thumbnail_regeneration(item, state, project, save):
     if not code:
         raise ValueError('Thumbnail regeneration requires the code from its review email.')
     if code in state.get('thumbnail_regeneration_requests', []):
+        comments = os.getenv('REVIEW_COMMENTS', '').strip()
+        if comments != state.get('thumbnail_comments', ''):
+            raise ValueError('That approval code already generated a thumbnail with different comments. Use the latest review email code.')
         return
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Thumbnail regeneration is available only before any platform upload begins.')

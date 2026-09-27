@@ -307,6 +307,15 @@ class AutomationTests(unittest.TestCase):
             self.assertNotIn('approved_digest', state)
             self.assertEqual(save.call_count, 1)
 
+    def test_consumed_thumbnail_code_rejects_different_comments(self):
+        from automation.queue_runner import apply_thumbnail_regeneration
+        state = {'status': 'awaiting_approval', 'thumbnail_regeneration_requests': ['used-code'],
+                 'thumbnail_comments': 'First direction'}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_thumbnail',
+                'APPROVAL_CODE': 'used-code', 'REVIEW_COMMENTS': 'Different direction'}):
+            with self.assertRaisesRegex(ValueError, 'already generated'):
+                apply_thumbnail_regeneration(item(), state, Path('/unused'), Mock())
+
     def test_thumbnail_regeneration_rejects_stale_code_or_started_upload(self):
         from automation.queue_runner import apply_thumbnail_regeneration
         base = {'status': 'awaiting_approval', 'review_digest': 'right', 'email_review': 'sent'}
