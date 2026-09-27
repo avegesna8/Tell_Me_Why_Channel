@@ -1,18 +1,7 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [
-    {
-      "id": "who-is-the-greatest-youtuber-of-all-time-c8e17793",
-      "idea": "Who is the Greatest Youtuber of All Time?",
-      "notes": "",
-      "minutes": 1,
-      "short_seconds": 30,
-      "enabled": true,
-      "made_for_kids": false,
-      "contains_synthetic_media": false
-    }
-  ],
+  "items": [],
   "timezone": "America/New_York",
   "notification_email": "tellmewhy.contact25@gmail.com"
 }
