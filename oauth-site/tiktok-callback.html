@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>TikTok authorization — Tell Me Why</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Tell Me Why</div>
+    <h1 id="title">TikTok authorization received</h1>
+    <p class="lede" id="message">Return to the setup tool to finish connecting the account.</p>
+    <section class="card" id="error-card" hidden>
+      <h2>Authorization was not completed</h2>
+      <p id="error-message"></p>
+    </section>
+    <nav aria-label="Legal information">
+      <a href="privacy.html">Privacy Policy</a>
+      <a href="terms.html">Terms of Service</a>
+    </nav>
+  </main>
+  <footer><p>Support: <a href="mailto:abhinn.varma@gmail.com">abhinn.varma@gmail.com</a></p></footer>
+  <script>
+    const parameters = new URLSearchParams(window.location.search);
+    const error = parameters.get('error_description') || parameters.get('error');
+    if (error) {
+      document.getElementById('title').textContent = 'TikTok authorization failed';
+      document.getElementById('message').textContent = 'Return to the setup tool and try again.';
+      document.getElementById('error-message').textContent = error;
+      document.getElementById('error-card').hidden = false;
+    }
+  </script>
+</body>
+</html>
