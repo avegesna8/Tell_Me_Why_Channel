@@ -18,8 +18,23 @@ class TikTok:
         self.session = session or requests.Session()
         self.credential_state = credential_state
         self.save = save
-        refresh_token = credential_state.get("refresh_token") or os.environ["TIKTOK_REFRESH_TOKEN"]
-        response = self.session.post(
+        fallback_token = os.environ["TIKTOK_REFRESH_TOKEN"]
+        refresh_token = credential_state.get("refresh_token") or fallback_token
+        response = self._refresh(refresh_token)
+        error = self._error_code(response)
+        if error == "invalid_grant" and refresh_token != fallback_token:
+            print("Stored TikTok refresh token was rejected; retrying the configured recovery token…", flush=True)
+            response = self._refresh(fallback_token)
+        payload = self.check(response, "token refresh")
+        self.access_token = payload["access_token"]
+        credential_state.update(
+            refresh_token=payload["refresh_token"],
+            open_id=payload["open_id"],
+        )
+        save()
+
+    def _refresh(self, refresh_token):
+        return self.session.post(
             f"{API_ROOT}/v2/oauth/token/",
             data={
                 "client_key": os.environ["TIKTOK_CLIENT_KEY"],
@@ -30,13 +45,14 @@ class TikTok:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
-        payload = self.check(response, "token refresh")
-        self.access_token = payload["access_token"]
-        credential_state.update(
-            refresh_token=payload["refresh_token"],
-            open_id=payload["open_id"],
-        )
-        save()
+
+    @staticmethod
+    def _error_code(response):
+        try:
+            error = response.json().get("error")
+        except (ValueError, AttributeError):
+            return None
+        return error.get("code") if isinstance(error, dict) else error
 
     @staticmethod
     def check(response, label):

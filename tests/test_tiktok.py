@@ -32,6 +32,23 @@ class TikTokTests(unittest.TestCase):
             TikTok(state, Mock(), session=session)
         self.assertEqual(state, {"refresh_token": "new-refresh", "open_id": "owner"})
 
+    def test_invalid_stored_refresh_token_falls_back_to_configured_token(self):
+        session = Mock()
+        session.post.side_effect = [
+            response(status=400, payload={"error": {"code": "invalid_grant"}}),
+            response(payload={"access_token": "access", "refresh_token": "rotated", "open_id": "owner"}),
+        ]
+        state = {"refresh_token": "stale-cloud-token"}
+        with patch.dict("os.environ", {
+            "TIKTOK_CLIENT_KEY": "key", "TIKTOK_CLIENT_SECRET": "secret",
+            "TIKTOK_REFRESH_TOKEN": "github-recovery-token",
+        }):
+            TikTok(state, Mock(), session=session)
+        self.assertEqual(session.post.call_count, 2)
+        self.assertEqual(session.post.call_args_list[0].kwargs["data"]["refresh_token"], "stale-cloud-token")
+        self.assertEqual(session.post.call_args_list[1].kwargs["data"]["refresh_token"], "github-recovery-token")
+        self.assertEqual(state["refresh_token"], "rotated")
+
     def test_uploads_one_file_as_inbox_draft(self):
         client = self.make_client()
         client.session.post.return_value = response(payload={
