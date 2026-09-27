@@ -27,6 +27,10 @@ on:
         description: 'Retry a confirmed TikTok initialization failure that occurred before any video bytes were sent'
         type: boolean
         default: false
+      skip_tiktok:
+        description: 'Finish other platforms and leave TikTok for manual upload'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 13 * * *'
 concurrency:
@@ -46,6 +50,7 @@ jobs:
       APPROVAL_CODE: ${{ inputs.approval_code }}
       REVIEW_COMMENTS: ${{ inputs.review_comments }}
       TIKTOK_RECOVER_INIT: ${{ inputs.recover_tiktok_init && '1' || '' }}
+      SKIP_TIKTOK_UPLOAD: ${{ inputs.skip_tiktok && '1' || '' }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'

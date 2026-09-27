@@ -183,6 +183,26 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(states['imax-001']['status'], 'done')
             self.assertIn('tiktok', states['_platform_credentials'])
 
+    def test_explicit_tiktok_skip_finishes_other_platforms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
+            (project/'metadata.json').write_text(json.dumps({
+                k: {'title': k, 'description': 'Description', 'tags': ['topic']} for k in ('long', 'short')}))
+            states = {'imax-001': {'status': 'publishing', 'uploads': {
+                'long': {'id': 'yt-long'}, 'short': {'id': 'yt-short'}},
+                'platform_uploads': {'facebook': {
+                    'long': {'id': 'fb-long'}, 'short': {'id': 'fb-short', 'finished': True}},
+                    'tiktok': {'short': {'started': True, 'signature': 'safe-pre-upload'}}}}}
+            with patch.dict('os.environ', {'SKIP_TIKTOK_UPLOAD': '1'}), \
+                 patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.TikTok') as tik:
+                process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
+            short = states['imax-001']['platform_uploads']['tiktok']['short']
+            self.assertTrue(short['skipped'])
+            self.assertEqual(short['delivery_status'], 'manual_upload_required')
+            self.assertNotIn('started', short)
+            self.assertEqual(states['imax-001']['status'], 'done')
+            tik.assert_not_called()
+
     def test_thumbnail_rejection_does_not_block_other_platforms(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)

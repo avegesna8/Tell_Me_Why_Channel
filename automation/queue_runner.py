@@ -131,7 +131,11 @@ def email_summary(item, project, state, save, kind):
                 'publish_id': tiktok.get('publish_id'),
                 'status': tiktok.get('delivery_status') or ('inbox_draft' if tiktok.get('uploaded') else 'not_uploaded'),
                 'metadata': publishing_metadata['tiktok'],
-                'next_step': 'Open the TikTok inbox notification, apply the prepared caption/hashtags and cover, then publish.',
+                'next_step': (
+                    'Download short/video.mp4 from the review artifact and upload it manually with the prepared caption, hashtags and cover.'
+                    if tiktok.get('skipped') else
+                    'Open the TikTok inbox notification, apply the prepared caption/hashtags and cover, then publish.'
+                ),
             }
         },
         'instagram': {
@@ -355,7 +359,7 @@ def process(item, queue, root, states, save, cloud=None):
         facebook_state.get('long', {}).get('id') and facebook_state.get('short', {}).get('finished')
     )
     tiktok_state = state.get('platform_uploads', {}).get('tiktok', {}).get('short', {})
-    tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded')
+    tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded') or tiktok_state.get('skipped')
     if not (youtube_complete and facebook_complete and tiktok_complete):
         meta = json.loads((project/'metadata.json').read_text())
         social_meta = platform_metadata(meta)
@@ -415,6 +419,17 @@ def process(item, queue, root, states, save, cloud=None):
             fb.upload_reel_draft(
                 project/'short'/'video.mp4', facebook_reel, facebook.setdefault('short', {}), save,
             )
+
+        if not tiktok_complete and os.getenv('SKIP_TIKTOK_UPLOAD') == '1':
+            tiktok_state = state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {})
+            if tiktok_state.get('upload_started'):
+                raise RuntimeError('TikTok byte-upload outcome is unknown; inspect TikTok before selecting manual upload.')
+            tiktok_state.update(skipped=True, delivery_status='manual_upload_required')
+            for key in ('started', 'signature', 'publish_id', 'upload_url'):
+                tiktok_state.pop(key, None)
+            save()
+            tiktok_complete = True
+            print('TikTok automation skipped; the Short remains available for manual upload.', flush=True)
 
         if not tiktok_complete:
             platform_credentials = states.setdefault('_platform_credentials', {})
