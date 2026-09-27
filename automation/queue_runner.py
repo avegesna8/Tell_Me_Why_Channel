@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 import pipeline as p
 from automation.production import metadata, thumbnail
 from automation.youtube import YouTube
+from automation.meta import Meta
+from automation.tiktok import TikTok
 
 
 def validate_queue(value):
@@ -76,11 +78,42 @@ def email_summary(item, project, state, save, kind):
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
     message['Subject'] = f"Video {kind}: {item['id']}"
     message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.{kind}@video-automation.local>"
-    report = {'idea': item['idea'], 'metadata': json.loads((project/'metadata.json').read_text()),
-              'youtube': {k: {'url': 'https://www.youtube.com/watch?v='+v['id'], 'privacy_status': 'private'}
-                          for k, v in state.get('uploads', {}).items() if v.get('id')},
-              'workflow_run': ('https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
-                              if os.getenv('GITHUB_RUN_ID') else None}
+    generated_metadata = json.loads((project/'metadata.json').read_text())
+    platforms = state.get('platform_uploads', {})
+    facebook = platforms.get('facebook', {})
+    tiktok = platforms.get('tiktok', {}).get('short', {})
+    instagram_tags = ' '.join('#' + re.sub(r'[^A-Za-z0-9]', '', tag)
+                              for tag in generated_metadata['short'].get('tags', []) if tag)[:500]
+    report = {
+        'idea': item['idea'],
+        'metadata': generated_metadata,
+        'youtube': {k: {'url': 'https://www.youtube.com/watch?v=' + value['id'],
+                        'privacy_status': 'private'}
+                    for k, value in state.get('uploads', {}).items() if value.get('id')},
+        'facebook': {
+            'long': {'id': facebook.get('long', {}).get('id'), 'status': 'unpublished'},
+            'short': {'id': facebook.get('short', {}).get('id'), 'status': 'reel_draft'},
+            'manage_url': (f"https://business.facebook.com/latest/content?asset_id={os.getenv('META_PAGE_ID')}"
+                           if facebook else None),
+        },
+        'tiktok': {
+            'short': {
+                'publish_id': tiktok.get('publish_id'),
+                'status': tiktok.get('delivery_status') or ('inbox_draft' if tiktok.get('uploaded') else 'not_uploaded'),
+                'next_step': 'Open the TikTok inbox notification to edit and publish the draft.',
+            }
+        },
+        'instagram': {
+            'status': 'manual_upload_required',
+            'account_id': os.getenv('META_INSTAGRAM_ACCOUNT_ID'),
+            'video_file': 'short/video.mp4',
+            'caption': generated_metadata['short']['description'],
+            'hashtags': instagram_tags,
+            'next_step': 'Download the Short from this email or workflow artifact and publish it in Instagram.',
+        },
+        'workflow_run': ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' +
+                         os.environ['GITHUB_RUN_ID']) if os.getenv('GITHUB_RUN_ID') else None,
+    }
     report['soundtracks'] = {kind: json.loads((location/'soundtrack.json').read_text())
                             for kind, location in [('long',project),('short',project/'short')]
                             if (location/'soundtrack.json').exists()}
@@ -100,7 +133,7 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to upload both videos privately, regenerate to create a completely new version, or delete to permanently '
+         'approve to stage the videos on all configured platforms, regenerate to create a completely new version, or delete to permanently '
          'discard the package without uploading. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
          'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
          'Replies to this email are not processed.' if kind == 'review' else ''))
@@ -135,9 +168,9 @@ def apply_deletion(item, state, root, save, cloud=None):
         raise ValueError('Deletion requires the code from its review email.')
     if state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Delete is available only for a generated package awaiting review.')
-    if any(upload.get('id') or upload.get('session') or upload.get('started')
-           for upload in state.get('uploads', {}).values()):
-        raise ValueError('Delete cannot remove a package after a YouTube upload began; reconcile it in YouTube Studio.')
+    if (any(upload.get('id') or upload.get('session') or upload.get('started')
+            for upload in state.get('uploads', {}).values()) or state.get('platform_uploads')):
+        raise ValueError('Delete cannot remove a package after any platform upload began; reconcile the platform dashboards.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Deletion code is stale or has not been emailed.')
     signature, revision = state.get('signature'), state.get('revision', 1)
@@ -149,7 +182,7 @@ def apply_deletion(item, state, root, save, cloud=None):
     state.update(status='discarded', discarded_at=datetime.now(timezone.utc).isoformat(),
                  signature=signature, revision=revision)
     save()
-    print(f"Discarded {item['id']}; no YouTube uploads were sent.", flush=True)
+    print(f"Discarded {item['id']}; no platform uploads were sent.", flush=True)
     return True
 
 
@@ -161,8 +194,8 @@ def apply_regeneration(item, state, save):
         raise ValueError('Regeneration requires the code from its review email.')
     if code in state.get('regeneration_requests', []):
         return  # Retried dispatch resumes that version, not another paid generation.
-    if state.get('uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
-        raise ValueError('Regenerate is available before uploading. Reconcile existing YouTube uploads first.')
+    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+        raise ValueError('Regenerate is available before uploading. Reconcile existing platform uploads first.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Regeneration code is stale or has not been emailed.')
     history = state.get('history', []) + [{k: v for k, v in state.items() if k != 'history'}]
@@ -212,7 +245,7 @@ def process(item, queue, root, states, save, cloud=None):
         digest = review_digest(item, project)
         if state.get('review_digest') != digest:
             if state.get('uploads'):
-                raise ValueError('Reviewed files changed after upload began; reconcile in YouTube Studio first.')
+                raise ValueError('Reviewed files changed after upload began; reconcile the platform dashboards first.')
             if state.get('email_review') == 'sending':
                 raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
             state['review_digest'] = digest
@@ -220,7 +253,7 @@ def process(item, queue, root, states, save, cloud=None):
         email_summary(item, project, state, save, 'review')
         if os.getenv('REVIEW_ONLY') == '1':
             state['status'] = 'awaiting_approval'; save()
-            print('Review-only run complete. YouTube uploads are disabled for this run.')
+            print('Review-only run complete. All platform uploads are disabled for this run.')
             return
         approval_code = os.getenv('APPROVAL_CODE', '')
         if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
@@ -229,40 +262,84 @@ def process(item, queue, root, states, save, cloud=None):
             state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
-            print('Prepared package; waiting for approval through the emailed workflow instructions. No YouTube uploads sent.')
+            print('Prepared package; waiting for approval through the emailed workflow instructions. No platform uploads sent.')
             return
-    if state.get('status') not in ('uploaded', 'scheduled'):
-        state.update(status='publishing'); save()
-        # Compatibility recovery for versions that saved `started` before a
-        # definitive HTTP RuntimeError but did not clear it afterward. Network-level
-        # ambiguity uses a different exception type and remains blocked for safety.
+    legacy_uploaded = state.get('status') in ('uploaded', 'scheduled')
+    youtube_complete = legacy_uploaded or all(
+        state.get('uploads', {}).get(kind, {}).get('id') for kind in ('long', 'short')
+    )
+    facebook_state = state.get('platform_uploads', {}).get('facebook', {})
+    facebook_complete = legacy_uploaded or (
+        facebook_state.get('long', {}).get('id') and facebook_state.get('short', {}).get('finished')
+    )
+    tiktok_state = state.get('platform_uploads', {}).get('tiktok', {}).get('short', {})
+    tiktok_complete = legacy_uploaded or tiktok_state.get('uploaded')
+    if not (youtube_complete and facebook_complete and tiktok_complete):
+        meta = json.loads((project/'metadata.json').read_text())
+        state.update(status='publishing')
+        save()
+        # Recover only definitive YouTube initiation failures. Network ambiguity
+        # stays blocked so a retry cannot create a duplicate.
         if state.get('last_error_type') == 'RuntimeError':
             recovered = False
             for upload in state.get('uploads', {}).values():
                 if upload.get('started') and not upload.get('session') and not upload.get('id'):
-                    upload.pop('started', None); upload.pop('signature', None); recovered = True
+                    upload.pop('started', None)
+                    upload.pop('signature', None)
+                    recovered = True
             if recovered:
                 save()
-        yt = YouTube(); meta = json.loads((project/'metadata.json').read_text())
-        for kind, location in [('long', project), ('short', project/'short')]:
-            upload = state.setdefault('uploads', {}).setdefault(kind, {})
-            snippet = {k: meta[kind][k] for k in ('title', 'description', 'tags')}
-            snippet['categoryId'] = str(queue.get('category_id', '27'))
-            video_id = yt.upload(location/'video.mp4', snippet, upload, save,
-                made_for_kids=item['made_for_kids'], synthetic=item['contains_synthetic_media'])
-            if not upload.get('defaults_set'):
-                yt.configure_defaults(video_id, snippet, made_for_kids=item['made_for_kids'],
-                                      synthetic=item['contains_synthetic_media'])
-                upload['defaults_set'] = True; save()
-            if kind == 'long' and not upload.get('thumbnail_set') and not state.get('thumbnail_error'):
-                try:
-                    yt.thumbnail(video_id, project/'thumbnail.jpg')
-                    upload['thumbnail_set'] = True; save()
-                except RuntimeError as exc:
-                    state['thumbnail_error'] = str(exc)
+
+        if not youtube_complete:
+            yt = YouTube()
+            for video_kind, location in [('long', project), ('short', project/'short')]:
+                upload = state.setdefault('uploads', {}).setdefault(video_kind, {})
+                snippet = {key: meta[video_kind][key] for key in ('title', 'description', 'tags')}
+                snippet['categoryId'] = str(queue.get('category_id', '27'))
+                video_id = yt.upload(
+                    location/'video.mp4', snippet, upload, save,
+                    made_for_kids=item['made_for_kids'],
+                    synthetic=item['contains_synthetic_media'],
+                )
+                if not upload.get('defaults_set'):
+                    yt.configure_defaults(
+                        video_id, snippet,
+                        made_for_kids=item['made_for_kids'],
+                        synthetic=item['contains_synthetic_media'],
+                    )
+                    upload['defaults_set'] = True
                     save()
-                    print('Custom thumbnail could not be applied; continuing with private uploads.', flush=True)
-        state['status'] = 'uploaded'; save()
+                if video_kind == 'long' and not upload.get('thumbnail_set') and not state.get('thumbnail_error'):
+                    try:
+                        yt.thumbnail(video_id, project/'thumbnail.jpg')
+                        upload['thumbnail_set'] = True
+                        save()
+                    except RuntimeError as exc:
+                        state['thumbnail_error'] = str(exc)
+                        save()
+                        print('Custom thumbnail could not be applied; continuing with private uploads.', flush=True)
+
+        if not facebook_complete:
+            facebook = state.setdefault('platform_uploads', {}).setdefault('facebook', {})
+            fb = Meta()
+            fb.upload_unpublished_video(
+                project/'video.mp4', meta['long'], facebook.setdefault('long', {}), save,
+            )
+            fb.upload_reel_draft(
+                project/'short'/'video.mp4', meta['short'], facebook.setdefault('short', {}), save,
+            )
+
+        if not tiktok_complete:
+            platform_credentials = state.setdefault('platform_credentials', {})
+            tik = TikTok(platform_credentials.setdefault('tiktok', {}), save)
+            tik.upload_draft(
+                project/'short'/'video.mp4',
+                state.setdefault('platform_uploads', {}).setdefault('tiktok', {}).setdefault('short', {}),
+                save,
+            )
+
+        state['status'] = 'uploaded'
+        save()
     email_summary(item, project, state, save, 'confirmation')
     state['status'] = 'done'; state['completed_at'] = datetime.now(timezone.utc).isoformat(); save()
 
@@ -305,7 +382,11 @@ def main():
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']
         if queue['email_mode'] == 'confirmation' or (os.getenv('APPROVAL_CODE') and os.getenv('REVIEW_ACTION', 'approve') == 'approve') or states.get(item['id'], {}).get('approved_digest'):
-            required += ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN']
+            required += [
+                'YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN',
+                'META_PAGE_ID', 'META_PAGE_ACCESS_TOKEN',
+                'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET', 'TIKTOK_REFRESH_TOKEN',
+            ]
         missing = [name for name in required if not os.getenv(name)]
         if missing:
             raise ValueError('Missing configuration: ' + ', '.join(missing))

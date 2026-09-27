@@ -137,7 +137,7 @@ class AutomationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'outcome is unknown'):
             email_summary(item(), Path('/unused'), {'email_review': 'sending'}, Mock(), 'review')
 
-    def test_both_private_uploads_precede_confirmation(self):
+    def test_all_platform_staging_precedes_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
             meta = {k: {'title': k, 'description': 'Description', 'tags': ['topic']} for k in ('long', 'short')}
@@ -145,21 +145,35 @@ class AutomationTests(unittest.TestCase):
             events = []
             yt = Mock()
             def upload(path, snippet, upload_state, save, **kwargs):
-                events.append('upload-'+snippet['title'])
+                events.append('youtube-'+snippet['title'])
                 upload_state['id'] = snippet['title']+'-id'
                 return upload_state['id']
             yt.upload.side_effect = upload
+            fb = Mock()
+            def facebook_long(path, metadata, upload_state, save):
+                events.append('facebook-long'); upload_state['id'] = 'fb-long'
+            def facebook_short(path, metadata, upload_state, save):
+                events.append('facebook-short'); upload_state.update(id='fb-short', finished=True)
+            fb.upload_unpublished_video.side_effect = facebook_long
+            fb.upload_reel_draft.side_effect = facebook_short
+            tik = Mock()
+            def tiktok_short(path, upload_state, save):
+                events.append('tiktok-short'); upload_state.update(publish_id='tt-short', uploaded=True)
+            tik.upload_draft.side_effect = tiktok_short
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
+                 patch('automation.queue_runner.Meta', return_value=fb), \
+                 patch('automation.queue_runner.TikTok', return_value=tik), \
                  patch('automation.queue_runner.email_summary', side_effect=lambda *args: events.append('email')):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
-            self.assertEqual(events, ['upload-long', 'upload-short', 'email'])
+            self.assertEqual(events, ['youtube-long', 'youtube-short', 'facebook-long',
+                                      'facebook-short', 'tiktok-short', 'email'])
             self.assertEqual(yt.configure_defaults.call_count, 2)
             self.assertTrue(states['imax-001']['uploads']['long']['defaults_set'])
             self.assertTrue(states['imax-001']['uploads']['short']['defaults_set'])
             self.assertEqual(states['imax-001']['status'], 'done')
 
-    def test_thumbnail_rejection_does_not_block_private_short_upload(self):
+    def test_thumbnail_rejection_does_not_block_other_platforms(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); project = root/'projects/imax-001'; project.mkdir(parents=True)
             (project/'metadata.json').write_text(json.dumps({
@@ -170,8 +184,15 @@ class AutomationTests(unittest.TestCase):
                 return upload_state['id']
             yt.upload.side_effect = upload
             yt.thumbnail.side_effect = RuntimeError('HTTP 403 (forbidden)')
+            fb = Mock()
+            fb.upload_unpublished_video.side_effect = lambda path, metadata, state, save: state.update(id='fb-long')
+            fb.upload_reel_draft.side_effect = lambda path, metadata, state, save: state.update(id='fb-short', finished=True)
+            tik = Mock()
+            tik.upload_draft.side_effect = lambda path, state, save: state.update(publish_id='tt-short', uploaded=True)
             states = {'imax-001': {'status': 'ready'}}
             with patch('automation.queue_runner.YouTube', return_value=yt), \
+                 patch('automation.queue_runner.Meta', return_value=fb), \
+                 patch('automation.queue_runner.TikTok', return_value=tik), \
                  patch('automation.queue_runner.email_summary'):
                 process(item(), {'email_mode': 'confirmation'}, root, states, Mock())
             self.assertEqual(events, ['upload-long', 'upload-short'])

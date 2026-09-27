@@ -54,12 +54,18 @@ jobs:
       SMTP_HOST: ${{ vars.SMTP_HOST }}
       SMTP_PORT: '587'
       SMTP_FROM: ${{ vars.SMTP_FROM }}
-      SUMMARY_EMAIL_TO: ${{ vars.SUMMARY_EMAIL_TO }}
+      SUMMARY_EMAIL_TO: tellmewhy.contact25@gmail.com
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      META_PAGE_ID: ${{ vars.META_PAGE_ID || secrets.META_PAGE_ID }}
+      META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+      META_INSTAGRAM_ACCOUNT_ID: ${{ vars.META_INSTAGRAM_ACCOUNT_ID || secrets.META_INSTAGRAM_ACCOUNT_ID }}
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+      TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v3
