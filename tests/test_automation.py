@@ -275,6 +275,50 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(state['revision'], 2)
             self.assertEqual(save.call_count, 1)
 
+    def test_regeneration_stores_optional_comments_for_the_new_revision(self):
+        from automation.queue_runner import apply_regeneration
+        state = {'status': 'awaiting_approval', 'review_digest': 'v1', 'email_review': 'sent',
+                 'signature': 'idea'}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVAL_CODE': 'v1',
+                                       'REVIEW_COMMENTS': 'Use a calmer opening and fewer close-ups.'}):
+            apply_regeneration(item(), state, Mock())
+        self.assertEqual(state['regeneration_comments'], 'Use a calmer opening and fewer close-ups.')
+        self.assertEqual(state['revision'], 2)
+
+    def test_thumbnail_regeneration_changes_only_thumbnail_and_revokes_old_code(self):
+        from automation.queue_runner import apply_thumbnail_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp); (project/'thumbnail.jpg').write_bytes(b'old thumbnail')
+            (project/'metadata.json').write_text(json.dumps({'long': {'title': 'Why IMAX?',
+                'thumbnail_prompt': 'A giant screen'}}))
+            state = {'status': 'awaiting_approval', 'review_digest': 'v1-full-code',
+                     'email_review': 'sent', 'approved_digest': 'v1-full-code'}
+            save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_thumbnail',
+                    'APPROVAL_CODE': 'v1-full-code', 'REVIEW_COMMENTS': 'Show the screen much larger.'}), \
+                 patch('automation.queue_runner.thumbnail') as generate:
+                apply_thumbnail_regeneration(item(), state, project, save)
+                apply_thumbnail_regeneration(item(), state, project, save)
+            generate.assert_called_once()
+            self.assertEqual(generate.call_args.kwargs['comments'], 'Show the screen much larger.')
+            self.assertTrue((project/'thumbnail-history/thumbnail-v1-full-code.jpg').exists())
+            self.assertEqual(state['thumbnail_revision'], 2)
+            self.assertNotIn('review_digest', state)
+            self.assertNotIn('approved_digest', state)
+            self.assertEqual(save.call_count, 1)
+
+    def test_thumbnail_regeneration_rejects_stale_code_or_started_upload(self):
+        from automation.queue_runner import apply_thumbnail_regeneration
+        base = {'status': 'awaiting_approval', 'review_digest': 'right', 'email_review': 'sent'}
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp); (project/'metadata.json').write_text(json.dumps({'long': {}}))
+            for state, code in [({**base}, 'wrong'),
+                                ({**base, 'uploads': {'long': {'id': 'uploaded'}}}, 'right')]:
+                with self.subTest(state=state), patch.dict('os.environ', {
+                        'REVIEW_ACTION': 'regenerate_thumbnail', 'APPROVAL_CODE': code}):
+                    with self.assertRaises(ValueError):
+                        apply_thumbnail_regeneration(item(), state, project, Mock())
+
     def test_regeneration_rejects_stale_code_and_uploaded_video(self):
         from automation.queue_runner import apply_regeneration
         with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVAL_CODE': 'old'}):

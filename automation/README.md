@@ -198,18 +198,21 @@ References:
 
 ## Regenerate from the review email
 
-The same emailed workflow link now offers `review_action: approve` or
-`regenerate`. Enter the package code from that review email.
-Regenerate starts a completely fresh script, long video, Short, images, thumbnail
-and metadata for the same idea. New versions are saved under
-`projects/ITEM_ID/revision-002/`, then `revision-003/`, etc. Previous files and
-review state are retained. New versions always require fresh review approval.
-Generation incurs the normal provider costs again.
+The emailed workflow offers `review_action: approve`, `regenerate`,
+`regenerate_thumbnail`, or `delete`. Enter the package code from the latest
+review email. Optional `review_comments` guide either regeneration action.
+`regenerate` starts a fresh script, long video, Short, images, thumbnail, and
+metadata for the same idea. New full versions are saved under
+`projects/ITEM_ID/revision-002/`, then `revision-003/`, and so on.
+`regenerate_thumbnail` keeps both videos, scripts, and metadata, replaces only
+the thumbnail, and sends a fresh review email and approval code. The prior
+thumbnail remains in the package's private thumbnail history.
 
-Retrying the same regeneration request resumes its version instead of starting
-another one. A stale code cannot regenerate a newer version. Regeneration is
-allowed before YouTube uploads begin; it does not delete or replace videos already on YouTube. Email replies still are not monitored; use the linked
-GitHub workflow form.
+Both actions require the latest emailed code and are allowed only before any
+platform upload begins. Each code is consumed at most once, so retrying a failed
+workflow resumes instead of starting another paid generation. Email replies are
+not monitored; enter comments in the linked GitHub workflow form.
+
 ## Small manual review tests
 
 Queue items may set `short_seconds` from 30 to 60 (default 55). Main duration uses

@@ -105,7 +105,7 @@ def email_summary(item, project, state, save, kind):
     message = EmailMessage()
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
     message['Subject'] = f"Video {kind}: {item['id']}"
-    message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.{kind}@video-automation.local>"
+    message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.t{state.get('thumbnail_revision', 1)}.{kind}@video-automation.local>"
     generated_metadata = json.loads((project/'metadata.json').read_text())
     platforms = state.get('platform_uploads', {})
     facebook = platforms.get('facebook', {})
@@ -150,10 +150,15 @@ def email_summary(item, project, state, save, kind):
         report['script_quality'] = json.loads((project/'script-quality.json').read_text())
     if state.get('thumbnail_error'):
         report['thumbnail_warning'] = state['thumbnail_error']
+    if state.get('regeneration_comments'):
+        report['regeneration_comments'] = state['regeneration_comments']
+    if state.get('thumbnail_comments'):
+        report['thumbnail_comments'] = state['thumbnail_comments']
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approval_code': state['review_digest'],
-                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate', 'delete']}
+                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate', 'regenerate_thumbnail', 'delete'],
+                              'comments': 'Optional for regenerate or regenerate_thumbnail'}
     p.save_json(project / 'upload-details.json', report)
     videos = [project/'video.mp4', project/'short/video.mp4']
     attach_videos = sum(file.stat().st_size for file in videos) <= 14 * 1024 * 1024
@@ -162,8 +167,9 @@ def email_summary(item, project, state, save, kind):
                   'The artifact appears after this workflow finishes; sign in to GitHub to access it.')
     message.set_content(video_note + '\n\n' + json.dumps(report, indent=2) +
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
-         'approve to stage the videos on all configured platforms, regenerate to create a completely new version, or delete to permanently '
-         'discard the package without uploading. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
+         'approve to stage the videos on all configured platforms, regenerate to create a completely new version, '
+         'regenerate_thumbnail to replace only the thumbnail, or delete to permanently discard the package without uploading. '
+         'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
          'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
          'Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
@@ -231,9 +237,43 @@ def apply_regeneration(item, state, save):
     revision = state.get('revision', 1) + 1
     requests = state.get('regeneration_requests', []) + [code]
     signature = state.get('signature')
+    comments = os.getenv('REVIEW_COMMENTS', '').strip()
+    if len(comments) > 2000:
+        raise ValueError('Review comments must be 2,000 characters or fewer.')
     state.clear()
     state.update(revision=revision, status='generating', history=history,
-                 regeneration_requests=requests, signature=signature)
+                 regeneration_requests=requests, signature=signature, regeneration_comments=comments)
+    save()
+
+
+def apply_thumbnail_regeneration(item, state, project, save):
+    if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_thumbnail':
+        return
+    code = os.getenv('APPROVAL_CODE', '')
+    if not code:
+        raise ValueError('Thumbnail regeneration requires the code from its review email.')
+    if code in state.get('thumbnail_regeneration_requests', []):
+        return
+    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+        raise ValueError('Thumbnail regeneration is available only before any platform upload begins.')
+    if code != state.get('review_digest') or state.get('email_review') != 'sent':
+        raise ValueError('Thumbnail regeneration code is stale or has not been emailed.')
+    comments = os.getenv('REVIEW_COMMENTS', '').strip()
+    if len(comments) > 2000:
+        raise ValueError('Review comments must be 2,000 characters or fewer.')
+    if not (project / 'metadata.json').exists():
+        raise ValueError('The reviewed package has no metadata for thumbnail regeneration.')
+    old_thumbnail = project / 'thumbnail.jpg'
+    if old_thumbnail.exists():
+        history = project / 'thumbnail-history'; history.mkdir(exist_ok=True)
+        shutil.copy2(old_thumbnail, history / f"thumbnail-{code[:12]}.jpg")
+    thumbnail(project, json.loads((project/'metadata.json').read_text())['long'], comments=comments)
+    state['thumbnail_regeneration_requests'] = state.get('thumbnail_regeneration_requests', []) + [code]
+    state['thumbnail_revision'] = state.get('thumbnail_revision', 1) + 1
+    state['thumbnail_comments'] = comments
+    state['status'] = 'ready'
+    state.pop('approved_digest', None); state.pop('review_digest', None)
+    state.pop('email_review', None); state.pop('thumbnail_error', None)
     save()
 
 
@@ -259,16 +299,22 @@ def process(item, queue, root, states, save, cloud=None):
     if os.getenv('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write(f'project={project}\n')
+    apply_thumbnail_regeneration(item, state, project, save)
     if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'uploaded', 'scheduled', 'done'):
         state['status'] = 'generating'; save()
         command = [sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
                    '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
                    '--short-seconds', str(item.get('short_seconds', 55))]
-        if item.get('notes', '').strip():
-            command.extend(['--notes', item['notes'].strip()])
+        notes = item.get('notes', '').strip()
+        if state.get('regeneration_comments', '').strip():
+            notes = (notes + '\n\nAdditional regeneration instructions:\n' +
+                     state['regeneration_comments'].strip()).strip()
+        if notes:
+            command.extend(['--notes', notes])
         subprocess.run(command, check=True)
         metadata(project)
-        thumbnail(project, json.loads((project/'metadata.json').read_text())['long'])
+        thumbnail(project, json.loads((project/'metadata.json').read_text())['long'],
+                  comments=state.get('regeneration_comments', ''))
         state['status'] = 'ready'; save()
     if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
@@ -411,7 +457,7 @@ def main():
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return
-        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'delete'):
+        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'regenerate_thumbnail', 'delete'):
             raise ValueError('Unknown review action.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']

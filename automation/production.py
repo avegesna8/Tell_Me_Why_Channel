@@ -113,7 +113,7 @@ def metadata(project):
     return value
 
 
-def thumbnail(project, meta):
+def thumbnail(project, meta, comments=""):
     path = project / 'thumbnail.jpg'
     reference = Path(os.getenv('IMAGE_REFERENCE', 'characters/updated_base.png'))
     prompt = ('Create an impactful, engaging 16:9 YouTube thumbnail for an illustrated explainer. '
@@ -126,7 +126,8 @@ def thumbnail(project, meta):
               'Keep all essential faces, subjects and text inside the central 75 percent of the image height '
               'and away from side edges so a centered 16:9 crop preserves them. The concept must accurately '
               'represent the video; no fabricated stakes or misleading comparisons. '
-              'Video title: ' + meta['title'] + '. Art direction: ' + meta['thumbnail_prompt'])
+              'Video title: ' + meta['title'] + '. Art direction: ' + meta['thumbnail_prompt'] +
+              ('. Reviewer instructions: ' + comments.strip() if comments.strip() else ''))
     ref = reference.read_bytes()
     signature = p.fingerprint({'prompt': prompt, 'reference': p.hashlib.sha256(ref).hexdigest(),
                               'model': os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-1.5')})

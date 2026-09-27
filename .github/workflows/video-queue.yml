@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       review_only:
-        description: Generate and email for review only; never upload to YouTube
+        description: Generate and email for review only; never upload to any platform
         type: boolean
         default: true
       review_action:
@@ -12,10 +12,15 @@ on:
         options:
           - approve
           - regenerate
+          - regenerate_thumbnail
           - delete
         default: approve
       approval_code:
         description: 'Paste the approval code from that same review email'
+        required: false
+        type: string
+      review_comments:
+        description: 'Optional instructions for regenerating the full video or only its thumbnail'
         required: false
         type: string
   schedule:
@@ -35,6 +40,7 @@ jobs:
       REVIEW_ONLY: ${{ inputs.review_only && '1' || '' }}
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
+      REVIEW_COMMENTS: ${{ inputs.review_comments }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'
