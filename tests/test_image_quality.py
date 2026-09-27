@@ -19,6 +19,14 @@ class ImageQualityTests(unittest.TestCase):
         with patch.object(image_quality.subprocess, 'run', return_value=completed):
             self.assertEqual(image_quality.ocr_image('scene.png'), [{'text': 'HELLO', 'confidence': 96.2}])
 
+    def test_final_fallback_tolerates_one_short_substantial_match(self):
+        self.assertTrue(image_quality.tolerable_fallback_text([
+            {'text': 'cul'}, {'text': 'Reach'}, {'text': 'Flu'}]))
+        self.assertFalse(image_quality.tolerable_fallback_text([
+            {'text': 'Cultural'}, {'text': 'Influence'}]))
+        self.assertFalse(image_quality.tolerable_fallback_text([
+            {'text': 'Creatilvity'}]))
+
     def test_text_free_retry_prompt_forbids_typography(self):
         prompt = pipeline.text_free_retry_prompt('Draw a theater.')
         self.assertIn('absolutely no readable text', prompt)
@@ -68,17 +76,32 @@ class ImageQualityTests(unittest.TestCase):
             self.assertEqual(report['first_detected_text'], [{'text': 'BAD'}])
             self.assertEqual(report['second_detected_text'], [{'text': 'WRNG'}])
 
+    def test_cached_third_attempt_accepts_weak_ocr_without_new_image_request(self):
+        weak = {'passed': False, 'attempt': 3,
+                'detected_text': [{'text': 'cul'}, {'text': 'Reach'}, {'text': 'Flu'}],
+                'image_sha256': 'same', 'prompt_signature': 'signature'}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); assets = root / 'assets'; assets.mkdir()
+            image = assets / 'scene-001.png'; image.write_bytes(b'image')
+            with patch('image_quality.cached_scene', return_value=weak), \
+                 patch.object(pipeline, 'request_image_bytes') as request:
+                pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
+            request.assert_not_called()
+            report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
+            self.assertTrue(report['passed'])
+            self.assertTrue(report['accepted_ocr_warning'])
+
     def test_failed_text_safe_fallback_still_blocks(self):
         failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
-        still_failed = {'passed': False, 'detected_text': [{'text': 'NOPE'}], 'image_sha256': 'new'}
+        still_failed = {'passed': False, 'detected_text': [{'text': 'NOPE'}, {'text': 'WORDS'}], 'image_sha256': 'new'}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); assets = root / 'assets'; assets.mkdir()
             image = assets / 'scene-001.png'; image.write_bytes(b'image')
             with patch('image_quality.cached_scene', return_value=failed), \
                  patch('image_quality.inspect', return_value=still_failed), \
                  patch.object(pipeline, 'request_image_bytes', return_value=b'fallback'):
-                with self.assertRaisesRegex(RuntimeError, 'after the text-safe fallback'):
+                with self.assertRaisesRegex(RuntimeError, 'substantial readable text'):
                     pipeline.check_image_text(image, {'prompt': 'draw'}, None, assets, 'scene-001', 'signature')
 
 

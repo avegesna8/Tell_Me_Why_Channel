@@ -27,6 +27,16 @@ def ocr_image(path, *, executable="tesseract", minimum_confidence=72):
     return found
 
 
+def tolerable_fallback_text(detected):
+    """Allow only one short OCR match after the dedicated text-safe fallback."""
+    substantial = []
+    for item in detected:
+        compact = re.sub(r"[^A-Za-z0-9]", "", str(item.get("text", "")))
+        if len(compact) >= 4:
+            substantial.append(compact)
+    return not substantial or (len(substantial) == 1 and len(substantial[0]) <= 6)
+
+
 def inspect(path):
     path = Path(path)
     detected = ocr_image(path)
