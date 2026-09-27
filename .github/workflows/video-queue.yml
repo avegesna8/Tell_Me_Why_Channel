@@ -23,6 +23,10 @@ on:
         description: 'Optional instructions for regenerating the full video or only its thumbnail'
         required: false
         type: string
+      recover_tiktok_init:
+        description: 'Retry a confirmed TikTok initialization failure that occurred before any video bytes were sent'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 13 * * *'
 concurrency:
@@ -41,6 +45,7 @@ jobs:
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
       REVIEW_COMMENTS: ${{ inputs.review_comments }}
+      TIKTOK_RECOVER_INIT: ${{ inputs.recover_tiktok_init && '1' || '' }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'

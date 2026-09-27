@@ -85,6 +85,12 @@ class TikTok:
         path = Path(path)
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if (state.get("started") and not state.get("upload_url") and not state.get("publish_id")
+                and os.getenv("TIKTOK_RECOVER_INIT") == "1"):
+            state.pop("started", None)
+            state.pop("signature", None)
+            save()
+            print("Reset confirmed pre-upload TikTok initiation checkpoint.", flush=True)
         if state.get("signature") and state["signature"] != digest:
             raise ValueError("TikTok draft file changed after upload started.")
         if state.get("uploaded"):
@@ -120,6 +126,9 @@ class TikTok:
                 parsed.hostname and REGIONAL_UPLOAD_HOST.fullmatch(parsed.hostname)
             )
             if parsed.scheme != "https" or not valid_host:
+                state.pop("started", None)
+                state.pop("signature", None)
+                save()
                 raise RuntimeError("TikTok returned an unexpected upload host.")
             state.update(publish_id=data["publish_id"], upload_url=upload_url)
             save()

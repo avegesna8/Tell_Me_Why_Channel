@@ -84,9 +84,26 @@ class TikTokTests(unittest.TestCase):
         })
         with tempfile.TemporaryDirectory() as tmp:
             video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            state = {}; save = Mock()
             with self.assertRaisesRegex(RuntimeError, "unexpected upload host"):
-                client.upload_draft(video, {}, Mock())
+                client.upload_draft(video, state, save)
+        self.assertNotIn("started", state)
+        self.assertNotIn("signature", state)
         client.session.put.assert_not_called()
+
+    def test_explicitly_recovers_confirmed_pre_upload_initiation(self):
+        client = self.make_client()
+        client.session.post.return_value = response(payload={
+            "data": {"publish_id": "draft-2", "upload_url":
+                     "https://open-upload.tiktokapis.com/video/?upload_id=2"}
+        })
+        client.session.put.return_value = response(status=201)
+        state = {"started": True, "signature": "old"}; save = Mock()
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                "os.environ", {"TIKTOK_RECOVER_INIT": "1"}):
+            video = Path(tmp) / "video.mp4"; video.write_bytes(b"video")
+            self.assertEqual(client.upload_draft(video, state, save), "draft-2")
+        self.assertTrue(state["uploaded"])
 
     def test_unknown_upload_does_not_resend_bytes(self):
         client = self.make_client()
