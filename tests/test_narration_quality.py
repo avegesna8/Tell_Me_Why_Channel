@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import wave
 
-from narration_quality import cached_report, inspect, transcript_match, wav_signal
+from narration_quality import apply_final_attempt_policy, cached_report, inspect, transcript_match, wav_signal
 
 
 class NarrationQualityTests(unittest.TestCase):
@@ -81,9 +81,35 @@ class NarrationQualityTests(unittest.TestCase):
             }))
             report = cached_report(report_path, audio, expected, 'small')
             self.assertTrue(report['passed'])
-            self.assertEqual(report['policy_version'], 2)
+            self.assertEqual(report['policy_version'], 3)
             self.assertEqual(report['failures'], [])
             self.assertTrue(report['warnings'])
+
+    def test_final_attempt_accepts_marginal_match_only_without_other_failures(self):
+        marginal = {'passed': False, 'attempt': 3, 'matched_fraction': .84,
+                    'failures': ['Whisper matched only 84% of the intended narration'], 'warnings': []}
+        self.assertTrue(apply_final_attempt_policy(marginal)['passed'])
+        structural = {'passed': False, 'attempt': 3, 'matched_fraction': .84,
+                      'failures': ['Whisper matched only 84% of the intended narration',
+                                   'a phrase of 6 intended words was missing or garbled'], 'warnings': []}
+        self.assertFalse(apply_final_attempt_policy(structural)['passed'])
+
+    def test_cached_final_attempt_is_upgraded_without_retranscribing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / 'voice.wav'; self.make_wav(audio)
+            expected = 'A complete intended narration'
+            report_path = root / 'narration-quality.json'
+            report_path.write_text(json.dumps({
+                'passed': False, 'attempt': 3, 'matched_fraction': .84,
+                'failures': ['Whisper matched only 84% of the intended narration'], 'warnings': [],
+                'audio_sha256': hashlib.sha256(audio.read_bytes()).hexdigest(),
+                'expected_sha256': hashlib.sha256(expected.encode()).hexdigest(),
+                'whisper_model': 'small', 'policy_version': 2,
+            }))
+            report = cached_report(report_path, audio, expected, 'small')
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['policy_version'], 3)
 
     def test_bad_transcript_and_internal_silence_fail(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -106,7 +106,24 @@ def inspect(audio, expected, model="small", *, transcriber=None):
             "warnings": warnings, "failures": failures, "mismatches": mismatches,
             "expected_word_count": len(wanted), "recognized_word_count": len(heard), "words": words,
             "audio_sha256": hashlib.sha256(audio.read_bytes()).hexdigest(), "whisper_model": model,
-            "policy_version": 2}
+            "policy_version": 3}
+
+
+def apply_final_attempt_policy(report):
+    """Accept a marginal final transcript only when every structural and signal check passed."""
+    transcript_failures = [failure for failure in report.get("failures", [])
+                           if failure.startswith("Whisper matched only ")]
+    other_failures = [failure for failure in report.get("failures", [])
+                      if not failure.startswith("Whisper matched only ")]
+    if (report.get("attempt", 1) >= 3 and report.get("matched_fraction", 0) >= .80
+            and transcript_failures and not other_failures):
+        report["failures"] = []
+        report["passed"] = True
+        warning = (f"Final attempt matched {report['matched_fraction']:.0%}; structural and signal checks passed, "
+                   "but review names, acronyms, and isolated word differences")
+        if warning not in report.setdefault("warnings", []):
+            report["warnings"].append(warning)
+    return report
 
 
 def cached_report(path, audio, expected, model):
@@ -119,7 +136,8 @@ def cached_report(path, audio, expected, model):
     if not (report.get("audio_sha256") == digest and report.get("expected_sha256") == expected_digest
             and report.get("whisper_model") == model):
         return None
-    if report.get("policy_version", 1) < 2:
+    policy_version = report.get("policy_version", 1)
+    if policy_version < 2:
         transcript_failure = [failure for failure in report.get("failures", [])
                               if failure.startswith("Whisper matched only ")]
         other_failures = [failure for failure in report.get("failures", [])
@@ -131,6 +149,8 @@ def cached_report(path, audio, expected, model):
                        "and isolated word differences")
             if warning not in report.setdefault("warnings", []):
                 report["warnings"].append(warning)
-        report["policy_version"] = 2
+    if policy_version < 3:
+        apply_final_attempt_policy(report)
+        report["policy_version"] = 3
         path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     return report

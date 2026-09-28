@@ -598,7 +598,7 @@ def asset_payloads(board, scene, voice, *, require_voice=True):
 
 def check_runpod_narration(path, text, directory, runpod, signature, *, report_stem="narration"):
     """Validate one continuous track locally and allow one resumable retry."""
-    from narration_quality import cached_report, inspect
+    from narration_quality import apply_final_attempt_policy, cached_report, inspect
     model = os.getenv("WHISPER_MODEL", "small")
     report_name = "narration-quality.json" if report_stem == "narration" else f"{report_stem}-quality.json"
     transcript_name = "transcript.json" if report_stem == "narration" else f"{report_stem}-transcript.json"
@@ -623,6 +623,7 @@ def check_runpod_narration(path, text, directory, runpod, signature, *, report_s
         atomic_write(path, runpod.synthesize(text, retry_path, retry_signature))
         report = inspect(path, text, model)
         report.update(attempt=retry_number + 1, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
+        apply_final_attempt_policy(report)
         words = report.pop("words")
         save_json(directory.parent / transcript_name, {
             "audio_sha256": report["audio_sha256"], "model": model, "words": words})
