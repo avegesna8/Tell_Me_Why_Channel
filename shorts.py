@@ -36,7 +36,9 @@ def short_script(source, directory, seconds):
             'payoff before the end. Finish with a punchy, satisfying closing sentence that answers the '
             'opening or reframes it with the insight the viewer just learned. Make the ending feel '
             'intentional and memorable, without a generic sign-off or forced subscription request. '
-            'Keep the hook and closing within the target duration. '
+            'Treat the requested duration as a pacing target, not a hard cutoff. Allow a few extra seconds when needed '
+            'to finish the final thought naturally. Never end mid-sentence, drop the payoff, or omit the closing sentence '
+            'just to hit the target exactly. '
             'Use conversational phrasing, concrete examples and short sentences. Use a sentence break rather than an em dash '
             'whenever a pause needs to be audible in narration. '
             'Use only claims supported by the source; preserve qualifications. No added statistics. '
@@ -59,24 +61,38 @@ def short_script(source, directory, seconds):
     return script_path
 
 
-def fit_speed(audio_seconds, target):
-    if not math.isfinite(audio_seconds) or audio_seconds <= 0:
-        raise ValueError('Short narration has invalid duration.')
-    # Leave a small margin for frame rounding and AAC padding at the upper bound.
+def duration_bounds(target):
     if not 30 <= target <= 60:
         raise ValueError('Short target must be 30–60 seconds.')
     if target < 45:
-        speed = audio_seconds / target
-    elif 45 <= audio_seconds <= 59.5:
-        speed = 1.0
-    elif audio_seconds < 45:
-        # The requested duration is a target. Use the slowest natural setting;
-        # final validation below still requires a valid 45–60 second Short.
-        speed = 0.8
+        # A short requested duration is a pacing target. Preserve a complete ending
+        # and allow a natural delivery instead of forcing an exact runtime.
+        return target * 0.9, min(60, target + 10)
+    return 45, 60
+
+
+def fit_speed(audio_seconds, target):
+    if not math.isfinite(audio_seconds) or audio_seconds <= 0:
+        raise ValueError('Short narration has invalid duration.')
+    lower, upper = duration_bounds(target)
+    if target < 45:
+        if lower <= audio_seconds <= upper:
+            speed = 1.0
+        elif audio_seconds < lower:
+            speed = audio_seconds / lower
+        else:
+            speed = audio_seconds / upper
+        speed_limits = (0.85, 1.15)
     else:
-        speed = audio_seconds / min(target, 59)
+        if 45 <= audio_seconds <= 59.5:
+            speed = 1.0
+        elif audio_seconds < 45:
+            speed = 0.8
+        else:
+            speed = audio_seconds / min(target, 59)
+        speed_limits = (0.8, 1.25)
     adjusted_seconds = audio_seconds / speed
-    if not 0.8 <= speed <= 1.25 or (target >= 45 and not 45 <= adjusted_seconds <= 60):
+    if not speed_limits[0] <= speed <= speed_limits[1] or not lower <= adjusted_seconds <= upper:
         raise ValueError(f'Short narration is {audio_seconds:.1f}s; edit short/script.txt to fit the {target}s target '
                          'and remove short/storyboard.json before rerunning. Audio has not been truncated.')
     return speed
@@ -114,6 +130,6 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
     actual = p.duration(directory / 'video.mp4')
     p.save_json(directory / 'short-timing.json', {'target_seconds': seconds, 'raw_audio_seconds': raw_duration,
                                                'narration_speed': speed, 'video_seconds': actual})
-    lower, upper = (seconds - 1, seconds + 1) if seconds < 45 else (45, 60)
+    lower, upper = duration_bounds(seconds)
     if not lower <= actual <= upper:
         raise RuntimeError(f'Rendered Short is {actual:.2f}s, outside {lower}–{upper}s. Review short-timing.json before using it.')
