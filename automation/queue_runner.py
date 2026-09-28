@@ -105,9 +105,11 @@ def email_summary(item, project, state, save, kind):
         raise RuntimeError('Previous email delivery outcome is unknown. Check inbox before changing its state; no duplicate email sent.')
     message = EmailMessage()
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
-    subject_revision = f" — revision {state.get('revision', 1)}, thumbnail {state.get('thumbnail_revision', 1)}"
+    subject_revision = (f" — revision {state.get('revision', 1)}, audio {state.get('audio_revision', 1)}, "
+                        f"thumbnail {state.get('thumbnail_revision', 1)}")
     message['Subject'] = f"Video {kind}: {item['id']}{subject_revision}"
-    message['Message-ID'] = f"<{item['id']}.v{state.get('revision', 1)}.t{state.get('thumbnail_revision', 1)}.{kind}@video-automation.local>"
+    message['Message-ID'] = (f"<{item['id']}.v{state.get('revision', 1)}.a{state.get('audio_revision', 1)}."
+                             f"t{state.get('thumbnail_revision', 1)}.{kind}@video-automation.local>")
     generated_metadata = json.loads((project/'metadata.json').read_text())
     platforms = state.get('platform_uploads', {})
     facebook = platforms.get('facebook', {})
@@ -172,11 +174,14 @@ def email_summary(item, project, state, save, kind):
         report['regeneration_comments'] = state['regeneration_comments']
     if state.get('thumbnail_comments'):
         report['thumbnail_comments'] = state['thumbnail_comments']
+    if state.get('audio_regeneration_comments'):
+        report['audio_regeneration_comments'] = state['audio_regeneration_comments']
     approval_url = ('https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/workflows/video-queue.yml') if os.getenv('GITHUB_REPOSITORY') else None
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approval_code': state['review_digest'],
-                              'revision': state.get('revision', 1), 'actions': ['approve', 'regenerate', 'regenerate_thumbnail', 'delete'],
-                              'comments': 'Optional for regenerate or regenerate_thumbnail'}
+                              'revision': state.get('revision', 1), 'audio_revision': state.get('audio_revision', 1),
+                              'actions': ['approve', 'regenerate', 'regenerate_audio', 'regenerate_thumbnail', 'delete'],
+                              'comments': 'Optional for regenerate, regenerate_audio, or regenerate_thumbnail'}
     p.save_json(project / 'upload-details.json', report)
     long_video = project/'video.mp4'
     short_video = project/'short/video.mp4'
@@ -196,8 +201,9 @@ def email_summary(item, project, state, save, kind):
         ('\n\nOpen the workflow link, click Run workflow, paste the approval code above, then choose review_action: '
          'approve to upload YouTube privately, create Facebook drafts, and publish the Instagram Reel live; TikTok remains a manual Studio upload using the attached package; '
          'regenerate to create a completely new version, '
+         'regenerate_audio to keep the scripts and all images while rebuilding narration, both videos, and soundtrack mixing, '
          'regenerate_thumbnail to replace only the thumbnail, or delete to permanently discard the package without uploading. '
-         'Optional review_comments guide either regeneration action. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
+         'Optional review_comments document the requested change. Regenerate recreates the script, both videos, images, thumbnail and metadata, '
          'and sends a new review email. Previous regenerated versions are preserved until delete is chosen. '
          'Replies to this email are not processed.' if kind == 'review' else ''))
     for file in [project/'upload-details.json', project/'thumbnail.jpg',
@@ -280,6 +286,56 @@ def apply_regeneration(item, state, save):
     save()
 
 
+def clear_audio_outputs(project):
+    """Remove speech and rendered-media outputs while preserving scripts and all imagery."""
+    project = Path(project)
+    exact_names = {
+        'video.mp4', 'video.partial.mp4', 'video.narration.mp4', 'soundtrack.partial.mp4',
+        'soundtrack-mix.json', 'soundtrack.json', 'captions.srt', 'captions.ass',
+        'narration-quality.json', 'transcript.json', 'short-timing.json',
+    }
+    for path in list(project.rglob('*')):
+        if not path.is_file():
+            continue
+        audio_asset = (path.parent.name == 'assets' and
+                       (path.suffix.lower() in ('.wav', '.mp3') or
+                        path.name.endswith(('.audio.json', '.runpod-job.json')) or
+                        path.name.startswith('narration-quality')))
+        if path.name in exact_names or audio_asset:
+            path.unlink()
+
+
+def apply_audio_regeneration(item, state, project, save):
+    if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_audio':
+        return
+    code = os.getenv('APPROVAL_CODE', '')
+    if not code:
+        raise ValueError('Audio regeneration requires the code from its review email.')
+    comments = os.getenv('REVIEW_COMMENTS', '').strip()
+    if code in state.get('audio_regeneration_requests', []):
+        if comments != state.get('audio_regeneration_comments', ''):
+            raise ValueError('That approval code already regenerated audio with different comments. Use the latest review email code.')
+        return
+    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+        raise ValueError('Audio regeneration is available only before any platform upload begins.')
+    if code != state.get('review_digest') or state.get('email_review') != 'sent':
+        raise ValueError('Audio regeneration code is stale or has not been emailed.')
+    if len(comments) > 2000:
+        raise ValueError('Review comments must be 2,000 characters or fewer.')
+    required = [project/'script.txt', project/'storyboard.json', project/'metadata.json',
+                project/'thumbnail.jpg', project/'short/script.txt', project/'short/storyboard.json']
+    if not all(path.exists() for path in required):
+        raise ValueError('The reviewed package is incomplete and cannot use audio-only regeneration.')
+    clear_audio_outputs(project)
+    state['audio_regeneration_requests'] = state.get('audio_regeneration_requests', []) + [code]
+    state['audio_revision'] = state.get('audio_revision', 1) + 1
+    state['audio_regeneration_comments'] = comments
+    state['audio_regeneration_active'] = True
+    state['status'] = 'generating'
+    state.pop('approved_digest', None); state.pop('review_digest', None); state.pop('email_review', None)
+    save()
+
+
 def apply_thumbnail_regeneration(item, state, project, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_thumbnail':
         return
@@ -336,24 +392,34 @@ def process(item, queue, root, states, save, cloud=None):
     if os.getenv('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write(f'project={project}\n')
+    apply_audio_regeneration(item, state, project, save)
     apply_thumbnail_regeneration(item, state, project, save)
     if state.get('status') not in ('ready', 'awaiting_approval', 'publishing', 'uploaded', 'scheduled', 'done'):
         state['status'] = 'generating'; save()
-        command = [sys.executable, str(Path(p.__file__)), 'run', '--idea', item['idea'],
-                   '--minutes', str(item.get('minutes', 3)), '--out', str(project), '--with-short',
-                   '--short-seconds', str(item.get('short_seconds', 55))]
+        command = [sys.executable, str(Path(p.__file__)), 'run']
+        if state.get('audio_regeneration_active'):
+            command.extend(['--script', str(project/'script.txt')])
+        else:
+            command.extend(['--idea', item['idea'], '--minutes', str(item.get('minutes', 3))])
+        command.extend(['--out', str(project), '--with-short',
+                        '--short-seconds', str(item.get('short_seconds', 55))])
         notes = item.get('notes', '').strip()
-        if state.get('regeneration_comments', '').strip():
+        if state.get('regeneration_comments', '').strip() and not state.get('audio_regeneration_active'):
             notes = (notes + '\n\nAdditional regeneration instructions:\n' +
                      state['regeneration_comments'].strip()).strip()
         if notes:
             command.extend(['--notes', notes])
-        subprocess.run(command, check=True)
-        metadata(project)
-        thumbnail(project, json.loads((project/'metadata.json').read_text())['long'],
-                  comments=state.get('regeneration_comments', ''))
-        generated = json.loads((project/'metadata.json').read_text())
-        social_covers(project, platform_metadata(generated))
+        run_env = None
+        if state.get('audio_regeneration_active'):
+            run_env = {**os.environ, 'REUSE_SOUNDTRACK_PLAN': '1'}
+        subprocess.run(command, check=True, env=run_env)
+        if not state.get('audio_regeneration_active'):
+            metadata(project)
+            thumbnail(project, json.loads((project/'metadata.json').read_text())['long'],
+                      comments=state.get('regeneration_comments', ''))
+            generated = json.loads((project/'metadata.json').read_text())
+            social_covers(project, platform_metadata(generated))
+        state.pop('audio_regeneration_active', None)
         state['status'] = 'ready'; save()
     cover_paths = [project/'short/covers'/f'{name}.jpg' for name in ('facebook', 'instagram', 'tiktok')]
     if (project/'short/assets/scene-001.png').exists() and not all(path.exists() for path in cover_paths):
@@ -512,7 +578,7 @@ def main():
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return
-        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'regenerate_thumbnail', 'delete'):
+        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'regenerate_audio', 'regenerate_thumbnail', 'delete'):
             raise ValueError('Unknown review action.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']

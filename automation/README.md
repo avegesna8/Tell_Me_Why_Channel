@@ -199,16 +199,21 @@ References:
 ## Regenerate from the review email
 
 The emailed workflow offers `review_action: approve`, `regenerate`,
-`regenerate_thumbnail`, or `delete`. Enter the package code from the latest
-review email. Optional `review_comments` guide either regeneration action.
+`regenerate_audio`, `regenerate_thumbnail`, or `delete`. Enter the package code
+from the latest review email. Optional `review_comments` document the requested
+change.
 `regenerate` starts a fresh script, long video, Short, images, thumbnail, and
 metadata for the same idea. New full versions are saved under
 `projects/ITEM_ID/revision-002/`, then `revision-003/`, and so on.
+`regenerate_audio` reuses the reviewed scripts, storyboards, scene images,
+thumbnail, covers, and metadata. It rebuilds narration, captions, both videos,
+and soundtrack mixes without making new writing, image, thumbnail, or metadata
+API calls.
 `regenerate_thumbnail` keeps both videos, scripts, and metadata, replaces only
 the thumbnail, and sends a fresh review email and approval code. The prior
 thumbnail remains in the package's private thumbnail history.
 
-Both actions require the latest emailed code and are allowed only before any
+All regeneration actions require the latest emailed code and are allowed only before any
 platform upload begins. Each code is consumed at most once, so retrying a failed
 workflow resumes instead of starting another paid generation. Email replies are
 not monitored; enter comments in the linked GitHub workflow form.

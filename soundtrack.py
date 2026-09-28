@@ -171,13 +171,17 @@ def make_plan(project, entries):
     path = project/'soundtrack-plan.json'
     if path.exists():
         saved = json.loads(path.read_text())
-        if saved.get('signature') != signature:
+        retime = saved.get('signature') != signature and os.getenv('REUSE_SOUNDTRACK_PLAN') == '1'
+        if saved.get('signature') != signature and not retime:
             raise ValueError('Soundtrack source changed; review/remove soundtrack-plan.json or use a new revision.')
         available = {e['id']:e for e in entries}
         if any(ident not in available or available[ident].get('sha256') != digest
                for ident,digest in saved.get('asset_hashes',{}).items()):
             raise ValueError('A previously selected audio asset changed or is missing; use a new revision.')
-        return resolve_plan(saved['plan'], entries, words, seconds)
+        resolved = resolve_plan(saved['plan'], entries, words, seconds)
+        if retime:
+            p.save_json(path, {**saved, 'signature':signature, 'retimed':True})
+        return resolved
     effect_schema = p.object_schema({'effect_id':{'type':'string', **({'enum':[e['id'] for e in planner_entries if e['kind']=='sfx']} if any(e['kind']=='sfx' for e in planner_entries) else {})},
                                     'word_index':{'type':'integer'}})
     maximum = min(40, max(1, math.floor(seconds/20)))

@@ -58,6 +58,28 @@ class SoundtrackTests(unittest.TestCase):
                 s.make_plan(root,entries+[{'id':'new_track','kind':'music','path':root/'new.wav','attribution_required':False}])
                 self.assertEqual(api.call_count,1)
 
+    def test_audio_regeneration_retimes_cached_plan_without_new_api_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'storyboard.json').write_text(json.dumps({'title':'Test','scenes':[]}))
+            alignment=root/'alignment.json'
+            alignment.write_text(json.dumps({'words':[{'word':'Reveal','start':2,'end':3}]}))
+            entries=[{'id':'pop','kind':'sfx','path':root/'pop.wav','attribution_required':False,
+                      'clip_seconds':1}]
+            response=Mock();response.json.return_value={'status':'completed','output':[{'content':[
+                {'type':'output_text','text':json.dumps({'music_id':None,'effects':[
+                    {'effect_id':'pop','word_index':0}]})}]}]}
+            with patch.object(p,'api_post',return_value=response) as api, patch.object(p,'duration',return_value=30):
+                original=s.make_plan(root,entries)
+                self.assertEqual(original['effects'][0]['at_seconds'],2)
+                alignment.write_text(json.dumps({'words':[{'word':'Reveal','start':7,'end':8}]}))
+                with patch.dict('os.environ', {'REUSE_SOUNDTRACK_PLAN':'1'}):
+                    retimed=s.make_plan(root,entries)
+                self.assertEqual(retimed['effects'][0]['at_seconds'],7)
+                self.assertEqual(api.call_count,1)
+            saved=json.loads((root/'soundtrack-plan.json').read_text())
+            self.assertTrue(saved['retimed'])
+
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
     def test_real_mix_keeps_music_steady_preserves_duration_and_resumes_after_interruption(self):
         with tempfile.TemporaryDirectory() as tmp:

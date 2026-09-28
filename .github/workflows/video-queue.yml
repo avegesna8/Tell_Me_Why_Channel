@@ -12,6 +12,7 @@ on:
         options:
           - approve
           - regenerate
+          - regenerate_audio
           - regenerate_thumbnail
           - delete
         default: approve

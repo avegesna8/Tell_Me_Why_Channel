@@ -303,6 +303,42 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(state['regeneration_comments'], 'Use a calmer opening and fewer close-ups.')
         self.assertEqual(state['revision'], 2)
 
+    def test_audio_regeneration_preserves_visuals_and_removes_only_audio_outputs(self):
+        from automation.queue_runner import apply_audio_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'script.txt', project/'storyboard.json', project/'metadata.json',
+                         project/'thumbnail.jpg', project/'short/script.txt', project/'short/storyboard.json',
+                         project/'assets/scene-001.png', project/'short/assets/scene-001.png'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+            removed = [project/'video.mp4', project/'video.narration.mp4', project/'soundtrack.json',
+                       project/'assets/narration.wav', project/'assets/narration.audio.json',
+                       project/'short/video.mp4', project/'short/assets/narration-part-001.wav',
+                       project/'short/short-timing.json']
+            for path in removed:
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'remove')
+            state = {'status': 'awaiting_approval', 'review_digest': 'code',
+                     'email_review': 'sent', 'approved_digest': 'code'}
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_audio',
+                    'APPROVAL_CODE': 'code', 'REVIEW_COMMENTS': 'Fix pacing.'}):
+                apply_audio_regeneration(item(), state, project, Mock())
+            self.assertTrue((project/'assets/scene-001.png').exists())
+            self.assertTrue((project/'short/assets/scene-001.png').exists())
+            self.assertTrue((project/'thumbnail.jpg').exists())
+            self.assertTrue(all(not path.exists() for path in removed))
+            self.assertEqual(state['audio_revision'], 2)
+            self.assertTrue(state['audio_regeneration_active'])
+            self.assertEqual(state['status'], 'generating')
+            self.assertNotIn('review_digest', state)
+
+    def test_audio_regeneration_rejects_stale_code_or_started_upload(self):
+        from automation.queue_runner import apply_audio_regeneration
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_audio', 'APPROVAL_CODE': 'old'}):
+            for state in [{'status': 'awaiting_approval', 'review_digest': 'new', 'email_review': 'sent'},
+                          {'status': 'publishing', 'review_digest': 'old', 'uploads': {'long': {'id': 'uploaded'}}}]:
+                with self.subTest(state=state), self.assertRaises(ValueError):
+                    apply_audio_regeneration(item(), state, Path('/unused'), Mock())
+
     def test_thumbnail_regeneration_changes_only_thumbnail_and_revokes_old_code(self):
         from automation.queue_runner import apply_thumbnail_regeneration
         with tempfile.TemporaryDirectory() as tmp:
