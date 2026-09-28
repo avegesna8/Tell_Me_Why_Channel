@@ -8,6 +8,7 @@ from pathlib import Path
 import pipeline as p
 
 VERSION = 7
+SCORE_KEYS = ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential')
 
 
 def deterministic_findings(script, minutes):
@@ -27,6 +28,18 @@ def deterministic_findings(script, minutes):
     if len(normalized) != len(set(normalized)):
         findings.append('Narration repeats an entire sentence.')
     return findings
+
+
+def stale_length_conflict(review, minutes):
+    """Detect a reviewer complaint about the draft length contradicted by its final script."""
+    final_script = review.get('final_script', '').strip()
+    issues = review.get('remaining_issues', [])
+    scores = review.get('scores', {})
+    length_pattern = re.compile(r'\b(word count|words?|length|shorter|longer)\b', re.I)
+    return (bool(final_script) and bool(issues)
+            and all(isinstance(issue, dict) and length_pattern.search(issue.get('reason', '')) for issue in issues)
+            and all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
+            and not deterministic_findings(final_script, minutes))
 
 
 def _text(result):
@@ -66,6 +79,11 @@ def review_script(script, request, directory):
                                 and cached.get('web_fact_check') == web_enabled)
         if cache_matches or legacy_final_matches:
             if not cached.get('approved'):
+                if stale_length_conflict(cached, request['minutes']):
+                    cached.update(approved=True, remaining_issues=[], recovered_stale_length_review=True,
+                                  approval_basis='The reviewer length complaint described the draft, while its final script passes all deterministic checks and score thresholds.')
+                    p.save_json(path, cached)
+                    return cached['final_script']
                 draft_path, idea_path = directory / 'script.draft.txt', directory / 'idea.json'
                 idea = json.loads(idea_path.read_text()) if idea_path.exists() else {}
                 prior_approval_proven = (draft_path.exists() and draft_path.read_text().strip() != script.strip()
@@ -139,8 +157,7 @@ def review_script(script, request, directory):
     final_script = review.get('final_script', '').strip()
     final_findings = deterministic_findings(final_script, request['minutes']) if final_script else ['Reviewer returned an empty script.']
     scores = review.get('scores', {})
-    passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in
-                        ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential'))
+    passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
     no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
     length_retry = False
     too_short_only = (len(final_findings) == 1 and final_findings[0].startswith('Word count ')
@@ -162,18 +179,22 @@ def review_script(script, request, directory):
             final_script = retry_script
             final_findings = deterministic_findings(final_script, request['minutes'])
             scores = review.get('scores', {})
-            passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in
-                                ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential'))
+            passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
             no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
             length_retry = True
             result = retry_result
-    approved = bool(review.get('approved')) and passed_scores and no_high and not final_findings
+    recovered_stale_length = stale_length_conflict(review, request['minutes'])
+    if recovered_stale_length:
+        review['remaining_issues'] = []
+        no_high = True
+    approved = (bool(review.get('approved')) or recovered_stale_length) and passed_scores and no_high and not final_findings
     final_signature = p.fingerprint({'version': VERSION, 'script': final_script, 'request': request,
                                      'model': model, 'web_fact_check': web_enabled})
     report = {**review, 'approved': approved, 'signature': signature, 'final_signature': final_signature,
               'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
               'final_deterministic_findings': final_findings, 'length_retry': length_retry,
+              'recovered_stale_length_review': recovered_stale_length,
               'sources': _sources(result)}
     p.save_json(path, report)
     if not approved:

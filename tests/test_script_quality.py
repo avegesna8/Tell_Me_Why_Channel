@@ -66,6 +66,29 @@ class ScriptQualityTests(unittest.TestCase):
         self.assertTrue(any('URL' in finding for finding in findings))
         self.assertTrue(any('heading' in finding for finding in findings))
 
+    def test_stale_draft_length_complaint_does_not_reject_valid_final_script(self):
+        final = ' '.join(f'Final point {i} adds a clear useful detail.' for i in range(24))
+        response = review_response(approved=False, script=final, severity='high')
+        body = json.loads(response.json.return_value['output'][0]['content'][0]['text'])
+        body['remaining_issues'] = [{'severity': 'high', 'reason': 'Only 50 words instead of the required length.'}]
+        response.json.return_value['output'][0]['content'][0]['text'] = json.dumps(body)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', return_value=response):
+            result = q.review_script('word ' * 50, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertEqual(result, final)
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertTrue(report['recovered_stale_length_review'])
+            self.assertEqual(report['remaining_issues'], [])
+
+    def test_stale_length_recovery_never_ignores_other_review_issues(self):
+        final = ' '.join(f'Final point {i} adds a clear useful detail.' for i in range(24))
+        review = {'final_script': final,
+                  'scores': {key: 8 for key in q.SCORE_KEYS},
+                  'remaining_issues': [
+                      {'severity': 'high', 'reason': 'The draft is too short.'},
+                      {'severity': 'high', 'reason': 'A factual claim is unsupported.'}]}
+        self.assertFalse(q.stale_length_conflict(review, 1))
+
 class ScriptQualityResumeTests(unittest.TestCase):
     def test_reviewed_final_script_reuses_same_review(self):
         draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
