@@ -1,11 +1,13 @@
 from array import array
+import hashlib
+import json
 import math
 from pathlib import Path
 import tempfile
 import unittest
 import wave
 
-from narration_quality import inspect, transcript_match, wav_signal
+from narration_quality import cached_report, inspect, transcript_match, wav_signal
 
 
 class NarrationQualityTests(unittest.TestCase):
@@ -49,6 +51,39 @@ class NarrationQualityTests(unittest.TestCase):
                 {'word': 'world', 'start': 1, 'end': 1.4}])
             self.assertTrue(report['passed'])
             self.assertEqual(report['matched_fraction'], 1)
+
+    def test_borderline_transcript_passes_when_no_phrase_or_signal_check_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / 'voice.wav'; self.make_wav(audio)
+            expected = ' '.join(f'word{i}' for i in range(50))
+            omitted = {4, 11, 18, 25, 32, 39, 46}
+            heard = [f'word{i}' for i in range(50) if i not in omitted]
+            report = inspect(audio, expected, transcriber=lambda *_: [
+                {'word': word, 'start': 0, 'end': .1} for word in heard])
+            self.assertTrue(report['passed'])
+            self.assertAlmostEqual(report['matched_fraction'], .86)
+            self.assertTrue(report['warnings'])
+
+    def test_cached_borderline_report_is_upgraded_without_retranscribing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / 'voice.wav'; self.make_wav(audio)
+            expected = 'A complete intended narration'
+            report_path = root / 'narration-quality.json'
+            report_path.write_text(json.dumps({
+                'passed': False,
+                'matched_fraction': .86,
+                'failures': ['Whisper matched only 86% of the intended narration'],
+                'warnings': [],
+                'audio_sha256': hashlib.sha256(audio.read_bytes()).hexdigest(),
+                'expected_sha256': hashlib.sha256(expected.encode()).hexdigest(),
+                'whisper_model': 'small',
+            }))
+            report = cached_report(report_path, audio, expected, 'small')
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['policy_version'], 2)
+            self.assertEqual(report['failures'], [])
+            self.assertTrue(report['warnings'])
 
     def test_bad_transcript_and_internal_silence_fail(self):
         with tempfile.TemporaryDirectory() as temp:

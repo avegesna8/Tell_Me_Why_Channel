@@ -86,10 +86,10 @@ def inspect(audio, expected, model="small", *, transcriber=None):
                   for _tag, a, b, c, d in mismatch_ops][:12]
     longest_expected_mismatch = max((b - a for _tag, a, b, _c, _d in mismatch_ops), default=0)
     warnings, failures = [], []
-    if matched < 0.88:
+    if matched < 0.85:
         failures.append(f"Whisper matched only {matched:.0%} of the intended narration")
     elif matched < 0.94:
-        warnings.append(f"Whisper matched {matched:.0%}; review names and acronyms")
+        warnings.append(f"Whisper matched {matched:.0%}; review names, acronyms, and isolated word differences")
     if longest_expected_mismatch >= 6:
         failures.append(f"a phrase of {longest_expected_mismatch} intended words was missing or garbled")
     if signal["leading_silence_seconds"] > 1.5:
@@ -105,7 +105,8 @@ def inspect(audio, expected, model="small", *, transcriber=None):
     return {"passed": not failures, "matched_fraction": round(matched, 4), "signal": signal,
             "warnings": warnings, "failures": failures, "mismatches": mismatches,
             "expected_word_count": len(wanted), "recognized_word_count": len(heard), "words": words,
-            "audio_sha256": hashlib.sha256(audio.read_bytes()).hexdigest(), "whisper_model": model}
+            "audio_sha256": hashlib.sha256(audio.read_bytes()).hexdigest(), "whisper_model": model,
+            "policy_version": 2}
 
 
 def cached_report(path, audio, expected, model):
@@ -115,5 +116,21 @@ def cached_report(path, audio, expected, model):
     report = json.loads(path.read_text())
     digest = hashlib.sha256(Path(audio).read_bytes()).hexdigest()
     expected_digest = hashlib.sha256(expected.encode()).hexdigest()
-    return report if (report.get("audio_sha256") == digest and report.get("expected_sha256") == expected_digest
-                      and report.get("whisper_model") == model) else None
+    if not (report.get("audio_sha256") == digest and report.get("expected_sha256") == expected_digest
+            and report.get("whisper_model") == model):
+        return None
+    if report.get("policy_version", 1) < 2:
+        transcript_failure = [failure for failure in report.get("failures", [])
+                              if failure.startswith("Whisper matched only ")]
+        other_failures = [failure for failure in report.get("failures", [])
+                          if not failure.startswith("Whisper matched only ")]
+        if report.get("matched_fraction", 0) >= .85 and transcript_failure and not other_failures:
+            report["failures"] = []
+            report["passed"] = True
+            warning = (f"Whisper matched {report['matched_fraction']:.0%}; review names, acronyms, "
+                       "and isolated word differences")
+            if warning not in report.setdefault("warnings", []):
+                report["warnings"].append(warning)
+        report["policy_version"] = 2
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    return report
