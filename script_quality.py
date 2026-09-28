@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 6
+VERSION = 7
 
 
 def deterministic_findings(script, minutes):
@@ -106,7 +106,11 @@ def review_script(script, request, directory):
         'spoken phrasing, unsupported certainty, and hard-to-illustrate passages while preserving the requested topic and length. '
         f'The final narration must contain between {minimum_words} and {maximum_words} words. '
         'Make every sentence lead naturally into the next; repair abrupt pivots, choppy runs of short sentences, and punctuation that '
-        'would cause unnatural pauses. Use brief connective wording where it improves spoken continuity without adding filler. '
+        'would cause unnatural pauses. Preserve or add a restrained number of natural discourse markers such as “so,” “well,” '
+        '“maybe,” “you know,” or a rare “um” where a human speaker would genuinely gather a thought or pivot. For a six-minute '
+        'script, roughly three to six total is enough; scale down for shorter scripts and remove repeated verbal tics. Use ordinary '
+        'punctuation for brief context-sensitive pauses after rhetorical questions, meaningful reveals, and major transitions, '
+        'without ellipses, repeated punctuation, or written timing directions. '
         'The first seconds need a specific truthful hook and the ending must deliver its payoff. Preserve or repair the exact final '
         'conclusion so it answers with “And now you know why …” plus the central question’s subject, followed only by '
         '“So yeah, thanks for tuning in, and I’ll see you in the next video. See ya!” Do not add headings, citations, URLs, '

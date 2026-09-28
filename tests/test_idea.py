@@ -45,6 +45,9 @@ class IdeaTests(unittest.TestCase):
             self.assertEqual(json.loads(payload["input"])["notes"], "Compare different theater formats.")
             self.assertIn("And now you know why", payload["instructions"])
             self.assertIn("So yeah, thanks for tuning in, and I’ll see you in the next video", payload["instructions"])
+            self.assertIn("human discourse markers", payload["instructions"])
+            self.assertIn("three to six total", payload["instructions"])
+            self.assertIn("brief contextual pause", payload["instructions"])
 
     def test_bad_input_and_incomplete_output_are_not_saved(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(p, "api_post") as post:

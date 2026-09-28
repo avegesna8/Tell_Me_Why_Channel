@@ -31,6 +31,8 @@ class ScriptQualityTests(unittest.TestCase):
             self.assertEqual(post.call_count, 1)
             payload = post.call_args.args[3]
             self.assertNotIn('tools', payload)
+            self.assertIn('restrained number of natural discourse markers', payload['instructions'])
+            self.assertIn('context-sensitive pauses', payload['instructions'])
             report = json.loads((Path(tmp)/'script-quality.json').read_text())
             self.assertTrue(report['approved'])
             self.assertFalse(report['web_fact_check'])
