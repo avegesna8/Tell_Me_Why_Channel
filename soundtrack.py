@@ -222,7 +222,7 @@ def mix_video(project, entries, plan):
     current = file_hash(video)
     by_id = {e['id']:e for e in entries}
     selected = {c['effect_id'] for c in plan['effects']} | ({plan['music_id']} if plan['music_id'] else set())
-    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':6})
+    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':8})
     if current == stamp.get('output_hash') and signature == stamp.get('signature'):
         return
     # Keep a dry source and record both sides of replacement for interruption-safe retries.
@@ -246,7 +246,7 @@ def mix_video(project, entries, plan):
         args += ['-stream_loop','-1','-i',str(by_id[plan['music_id']]['path'])]
         next_input = 2
         filters = [f'[0:a]{voice_mix}{fmt}[voice]',
-            f'[1:a]atrim=duration={seconds},asetpts=PTS-STARTPTS,loudnorm=I=-40:TP=-4:LRA=7,{fmt},'
+            f'[1:a]atrim=duration={seconds},asetpts=PTS-STARTPTS,loudnorm=I=-50:TP=-4:LRA=7,{fmt},'
             f'afade=t=in:d={min(.7,seconds/3)},afade=t=out:st={seconds-fade}:d={fade}[music]']
         inputs.append('[music]')
     for i,cue in enumerate(plan['effects'],next_input):
@@ -288,7 +288,7 @@ def mix_video(project, entries, plan):
     p.save_json(stamp_path,{'signature':signature,'dry_hash':file_hash(dry),
                           'previous_output_hash':current,'output_hash':file_hash(output)})
     p.save_json(project/'soundtrack.json', {**plan,'music_file':by_id[plan['music_id']]['file'] if plan['music_id'] else None,
-        'mix':{'music_lufs':-40,'effects_lufs':-26,'intro_effect_lufs':-15 if intro_cue else None,
+        'mix':{'music_lufs':-50,'effects_lufs':-26,'intro_effect_lufs':-15 if intro_cue else None,
                'intro_voice_duck':0.72 if intro_cue else None,'intro_duck_seconds':duck_seconds,
                'music_volume_mode':'constant','music_ducking':False,
                'intro_voice_ducking':bool(intro_cue),'duration_seconds':seconds}})

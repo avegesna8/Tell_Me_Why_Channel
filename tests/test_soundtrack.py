@@ -85,7 +85,7 @@ class SoundtrackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             p.run_ffmpeg(['-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=8',
-                '-f','lavfi','-i',"aevalsrc=if(between(t\\,2\\,4)\\,0.4*sin(2*PI*1000*t)\\,0):s=48000:d=8",
+                '-f','lavfi','-i',"aevalsrc=if(between(t\\,2\\,4)\\,0.4*sin(2*PI*4000*t)\\,0):s=48000:d=8",
                 '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',str(root/'video.mp4')])
             for name,hz in [('music',180),('pop',2000)]:
                 p.run_ffmpeg(['-f','lavfi','-i',f'sine=frequency={hz}:duration=8:sample_rate=48000',str(root/f'{name}.wav')])
@@ -104,7 +104,7 @@ class SoundtrackTests(unittest.TestCase):
             s.mix_video(root,entries,plan)
             self.assertAlmostEqual(p.duration(root/'video.mp4'),8,places=1)
             self.assertEqual(s.file_hash(root/'video.narration.mp4'),original)
-            self.assertEqual(json.loads((root/'soundtrack.json').read_text())['mix']['music_lufs'], -40)
+            self.assertEqual(json.loads((root/'soundtrack.json').read_text())['mix']['music_lufs'], -50)
             mixed=s.file_hash(root/'video.mp4')
             with patch.object(p,'run_ffmpeg') as render:
                 s.mix_video(root,entries,plan)
