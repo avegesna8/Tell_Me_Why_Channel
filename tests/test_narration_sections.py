@@ -69,14 +69,14 @@ class NarrationSectionTests(unittest.TestCase):
             self.assertEqual(join.call_count, 1)
             self.assertTrue((assets / "narration.wav").is_file())
 
-    def test_join_adds_only_a_short_transition_pause(self):
+    def test_join_adds_a_natural_transition_pause(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); first = root / "first.wav"; second = root / "second.wav"
             output = root / "joined.wav"
             pipeline.run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=330:duration=1", str(first)])
             pipeline.run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=1", str(second)])
-            join_wavs([first, second], output, pipeline.run_ffmpeg, pause_seconds=.18)
-            self.assertAlmostEqual(pipeline.duration(output), 2.18, delta=.12)
+            join_wavs([first, second], output, pipeline.run_ffmpeg, pause_seconds=.26)
+            self.assertAlmostEqual(pipeline.duration(output), 2.26, delta=.12)
 
 
 if __name__ == "__main__":

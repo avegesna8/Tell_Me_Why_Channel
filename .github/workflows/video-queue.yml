@@ -52,8 +52,8 @@ jobs:
       RUNPOD_ENDPOINT_ID: ${{ vars.RUNPOD_ENDPOINT_ID }}
       RUNPOD_MODEL_VERSION: ${{ vars.RUNPOD_MODEL_VERSION || '2.5' }}
       RUNPOD_REFERENCE_AUDIO: /tmp/tell-me-why-reference.wav
-      RUNPOD_DURATION_FACTOR: '1.11'
-      RUNPOD_EMOTION: Curious and conversational, with subtle excitement
+      RUNPOD_DURATION_FACTOR: '1.16'
+      RUNPOD_EMOTION: Warm, curious, conversational, and unhurried, with natural breathing room and subtle excitement
       RUNPOD_EMOTION_STRENGTH: '0.5'
       IMAGE_REFERENCE: characters/updated_base.png
       AUDIO_LIBRARY: audio/library.runtime.json

@@ -611,11 +611,11 @@ def generate_sectioned_narration(directory, runpod, written_sections, speech_sec
         parts.append(path)
     output, stamp = directory / "narration.wav", directory / "narration.audio.json"
     join_signature = fingerprint({"parts": [hashlib.sha256(path.read_bytes()).hexdigest() for path in parts],
-                                  "pause_seconds": .18, "join_version": 1})
+                                  "pause_seconds": .26, "join_version": 2})
     reusable = output.exists() and output.stat().st_size and stamp.exists() and json.loads(stamp.read_text()).get("signature") == join_signature
     if not reusable:
         print(f"Joining {len(parts)} narration sections with natural pauses…", flush=True)
-        join_wavs(parts, output, run_ffmpeg, pause_seconds=.18)
+        join_wavs(parts, output, run_ffmpeg, pause_seconds=.26)
         save_json(stamp, {"signature": join_signature, "file": output.name, "sections": len(parts)})
     check_joined_narration(output, " ".join(speech_sections), directory)
 
