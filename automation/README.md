@@ -166,11 +166,9 @@ synthetic-media declarations. The Education category remains the queue default.
 
 New storyboards cap medium-quality images at one quarter of their scenes; routine
 scenes use low quality while the opening, closing, and selected key reveals retain
-medium quality. When a Short scene strongly matches an existing long-form scene,
-the pipeline creates a local vertical crop and records the reuse in
-`short/reused-images.json`, avoiding another image API call. Unmatched Short scenes
-are generated normally. Temporary provider HTTP 500, 502, 503, and 504 responses
-retry automatically with bounded backoff.
+medium quality. Short scenes are generated separately in native 9:16 composition so
+important subjects are not lost to a landscape-to-vertical crop. Temporary provider
+HTTP 500, 502, 503, and 504 responses retry automatically with bounded backoff.
 
 The long video gets a generated reference-based 1280×720 thumbnail. The Short
 gets its own title/description/tags, but no custom thumbnail is applied through

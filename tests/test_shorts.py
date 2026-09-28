@@ -28,38 +28,6 @@ class ShortsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 s.short_script(board(), root, 60)
 
-    def test_reuses_strongly_matching_long_image_for_short(self):
-        source = {'title': 'Topic', 'style_guide': 'Ink', 'aspect_ratio': '16:9', 'scenes': [
-            {'id': 1, 'narration': 'Airplane engines create white condensation trails.',
-             'prompt': 'Airplane with white condensation trails', 'camera_style': 'wide', 'mood': 'clear',
-             'show_character': False, 'image_quality': 'low'}]}
-        short_board = {'title': 'Short', 'style_guide': 'Ink', 'aspect_ratio': '9:16', 'scenes': [
-            {'id': 1, 'narration': 'Airplane condensation creates those white trails.',
-             'prompt': 'Airplane and white condensation trails', 'camera_style': 'close', 'mood': 'clear',
-             'show_character': False, 'image_quality': 'low'}]}
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); (root/'assets').mkdir(); (root/'assets/scene-001.png').write_bytes(b'long')
-            def crop(args, cwd=None):
-                Path(args[-1]).write_bytes(b'cropped')
-            with patch.object(s.p, 'run_ffmpeg', side_effect=crop) as ffmpeg:
-                mappings = s.reuse_long_images(source, root, short_board)
-            self.assertEqual(mappings[0]['long_scene'], 1)
-            self.assertEqual((root/'short/assets/scene-001.png').read_bytes(), b'cropped')
-            stamp = json.loads((root/'short/assets/scene-001.image.json').read_text())
-            self.assertEqual(stamp['reused_from'], 'assets/scene-001.png')
-            ffmpeg.assert_called_once()
-
-    def test_weak_match_still_uses_normal_generation(self):
-        source = board()
-        short_board = {'title': 'Short', 'style_guide': 'Ink', 'aspect_ratio': '9:16', 'scenes': [
-            {'id': 1, 'narration': 'Volcano lava pressure.', 'prompt': 'Erupting volcano',
-             'camera_style': 'wide', 'mood': 'tense', 'show_character': False, 'image_quality': 'low'}]}
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); (root/'assets').mkdir(); (root/'assets/scene-001.png').write_bytes(b'long')
-            with patch.object(s.p, 'run_ffmpeg') as ffmpeg:
-                self.assertEqual(s.reuse_long_images(source, root, short_board), [])
-            ffmpeg.assert_not_called()
-
     def test_duration_adjustment_never_truncates(self):
         self.assertEqual(s.fit_speed(52, 55), 1)
         self.assertAlmostEqual(s.fit_speed(65, 55), 65 / 55)
