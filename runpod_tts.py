@@ -89,8 +89,14 @@ class RunPodTTS:
             if not job_id:
                 raise RuntimeError(f"Previous submission outcome is unknown. Check RunPod Requests before removing {state_path} and retrying.")
             print(f"Resuming RunPod job {job_id}", flush=True)
-            result = self.request("GET", f"/status/{job_id}")
-        else:
+            try:
+                result = self.request("GET", f"/status/{job_id}")
+            except RuntimeError as exc:
+                if f"RunPod HTTP 404 on /status/{job_id}" not in str(exc):
+                    raise
+                print(f"Saved RunPod job {job_id} has expired; submitting a fresh replacement…", flush=True)
+                state = None
+        if not state:
             # Persist intent before POST: a lost response must not silently duplicate a paid job.
             save(state_path, {"signature": signature, "endpoint": self.endpoint, "status": "SUBMITTING"})
             print("Submitting IndexTTS-2 narration to RunPod…", flush=True)

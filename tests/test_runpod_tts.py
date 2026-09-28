@@ -52,6 +52,15 @@ class RunPodTests(unittest.TestCase):
             self.client.synthesize("Hello", self.state, "sig")
             request.assert_called_once_with("GET", "/status/job-1")
 
+    def test_expired_saved_job_submits_fresh_replacement(self):
+        self.state.write_text(json.dumps({"id": "expired-job", "signature": "sig", "status": "COMPLETED"}))
+        not_found = RuntimeError("RunPod HTTP 404 on /status/expired-job. Check endpoint ID, API key, quota and job status in RunPod console.")
+        with patch.object(self.client, "request", side_effect=[not_found, self.completed]) as request:
+            self.assertEqual(self.client.synthesize("Hello", self.state, "sig"), wav_bytes())
+        self.assertEqual(request.call_args_list[0].args, ("GET", "/status/expired-job"))
+        self.assertEqual(request.call_args_list[1].args[:2], ("POST", "/run"))
+        self.assertEqual(json.loads(self.state.read_text())["id"], "job-1")
+
     def test_lost_submission_blocks_duplicate(self):
         with patch.object(self.client, "request", side_effect=RuntimeError("Network")):
             with self.assertRaises(RuntimeError):
