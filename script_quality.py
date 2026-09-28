@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 7
+VERSION = 8
 SCORE_KEYS = ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential')
 
 
@@ -161,17 +161,22 @@ def review_script(script, request, directory):
     scores = review.get('scores', {})
     passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
     no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
-    length_retry = False
-    too_short_only = (len(final_findings) == 1 and final_findings[0].startswith('Word count ')
-                      and len(final_script.split()) < minimum_words)
-    if bool(review.get('approved')) and passed_scores and no_high and too_short_only:
+    correction_retry = False
+    needs_correction = bool(final_findings) or not passed_scores or not no_high
+    if needs_correction:
+        feedback = {
+            'deterministic_findings': final_findings,
+            'scores': scores,
+            'remaining_issues': review.get('remaining_issues', []),
+        }
         retry_payload = {**payload,
             'instructions': instructions + (
-                f' The prior edit was only {len(final_script.split())} words. Expand it to at least '
-                f'{minimum_words} words and no more than {maximum_words} words. Preserve its quality, factual caution, '
-                'smooth narration, hook, and required conclusion. Add useful explanation and examples rather than filler.'),
-            'input': json.dumps({'brief': request, 'draft_script': final_script,
-                                 'automated_findings': final_findings}),
+                ' The prior edit still failed the quality gate. Correct every supplied deterministic finding and remaining '
+                'high-severity issue, and raise every score below 7. Return a complete replacement narration. Do not merely '
+                'describe the fixes. Keep the result inside the required word range and set approved based only on the corrected '
+                'final_script.'),
+            'input': json.dumps({'brief': request, 'draft_script': final_script or script,
+                                 'prior_review_feedback': feedback}),
         }
         retry_result = p.api_post('https://api.openai.com/v1', 'OPENAI_API_KEY', '/responses', retry_payload).json()
         retry_review = json.loads(_text(retry_result))
@@ -183,22 +188,29 @@ def review_script(script, request, directory):
             scores = review.get('scores', {})
             passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
             no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
-            length_retry = True
+            correction_retry = True
             result = retry_result
     recovered_stale_length = stale_length_conflict(review, request['minutes'])
     if recovered_stale_length:
         review['remaining_issues'] = []
         no_high = True
-    approved = (bool(review.get('approved')) or recovered_stale_length) and passed_scores and no_high and not final_findings
+    approved = passed_scores and no_high and not final_findings
     final_signature = p.fingerprint({'version': VERSION, 'script': final_script, 'request': request,
                                      'model': model, 'web_fact_check': web_enabled})
     report = {**review, 'approved': approved, 'signature': signature, 'final_signature': final_signature,
               'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
-              'final_deterministic_findings': final_findings, 'length_retry': length_retry,
+              'final_deterministic_findings': final_findings, 'correction_retry': correction_retry,
               'recovered_stale_length_review': recovered_stale_length,
               'sources': _sources(result)}
     p.save_json(path, report)
     if not approved:
-        raise ValueError('Script quality gate did not approve the script. Review script-quality.json before retrying.')
+        low_scores = [f'{key}={scores.get(key)}' for key in SCORE_KEYS
+                      if not isinstance(scores.get(key), int) or scores.get(key) < 7]
+        high_issues = [issue.get('reason', 'Unspecified high-severity issue')
+                       for issue in review.get('remaining_issues', []) if issue.get('severity') == 'high']
+        reasons = final_findings + ((['scores below 7: ' + ', '.join(low_scores)]) if low_scores else []) + high_issues
+        detail = '; '.join(str(reason) for reason in reasons)[:700] or 'reviewer result remained inconsistent'
+        raise ValueError(f'Script quality gate did not approve the corrected script: {detail}. '
+                         'Review script-quality.json before retrying.')
     return final_script

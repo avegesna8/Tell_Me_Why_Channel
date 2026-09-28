@@ -39,11 +39,24 @@ class ScriptQualityTests(unittest.TestCase):
 
     def test_low_score_blocks_before_assets(self):
         draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
-        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', return_value=review_response(
-                approved=False, score=6, severity='high')):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', side_effect=[review_response(
+                approved=False, score=6, severity='high'), review_response(approved=False, score=6, severity='high')]) as post:
             with self.assertRaisesRegex(ValueError, 'quality gate'):
                 q.review_script(draft, {'idea':'A topic','minutes':1}, Path(tmp))
             self.assertFalse(json.loads((Path(tmp)/'script-quality.json').read_text())['approved'])
+            self.assertEqual(post.call_count, 2)
+
+    def test_inconsistent_approved_boolean_does_not_block_clean_final_script(self):
+        response = review_response(approved=True)
+        body = json.loads(response.json.return_value['output'][0]['content'][0]['text'])
+        body['approved'] = False
+        body['remaining_issues'] = [{'severity': 'low', 'reason': 'Optional stylistic preference.'}]
+        response.json.return_value['output'][0]['content'][0]['text'] = json.dumps(body)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(q.p, 'api_post', return_value=response) as post:
+            result = q.review_script('word ' * 100, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertTrue(result)
+            self.assertEqual(post.call_count, 1)
+            self.assertTrue(json.loads((Path(tmp)/'script-quality.json').read_text())['approved'])
 
     def test_approved_but_short_review_gets_one_length_correction(self):
         short = ' '.join(f'Short point {i} is useful.' for i in range(15))
@@ -56,10 +69,11 @@ class ScriptQualityTests(unittest.TestCase):
             self.assertEqual(result, expanded)
             self.assertEqual(post.call_count, 2)
             retry_payload = post.call_args_list[1].args[3]
-            self.assertIn('Expand it to at least 94 words', retry_payload['instructions'])
+            self.assertIn('failed the quality gate', retry_payload['instructions'])
+            self.assertIn('required word range', retry_payload['instructions'])
             report = json.loads((Path(tmp)/'script-quality.json').read_text())
             self.assertTrue(report['approved'])
-            self.assertTrue(report['length_retry'])
+            self.assertTrue(report['correction_retry'])
 
     def test_deterministic_checks_reject_non_narration_format(self):
         findings = q.deterministic_findings('[excited]\nhttps://example.com ' + ('word ' * 70), 1)
