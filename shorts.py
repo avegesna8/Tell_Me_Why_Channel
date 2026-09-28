@@ -67,7 +67,7 @@ def duration_bounds(target):
     if target < 45:
         # A short requested duration is a pacing target. Preserve a complete ending
         # and allow a natural delivery instead of forcing an exact runtime.
-        return target * 0.9, min(60, target + 10)
+        return max(20, target - 10), min(60, target + 20)
     return 45, 60
 
 

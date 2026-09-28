@@ -57,10 +57,12 @@ class ShortsTests(unittest.TestCase):
             self.assertTrue((short / 'short-timing.json').exists())
 
     def test_thirty_second_target_preserves_natural_complete_audio(self):
-        self.assertEqual(s.duration_bounds(30), (27, 40))
+        self.assertEqual(s.duration_bounds(30), (20, 50))
         self.assertEqual(s.fit_speed(33, 30), 1)
         self.assertEqual(s.fit_speed(27, 30), 1)
-        self.assertAlmostEqual(s.fit_speed(45, 30), 45 / 40)
-        for length in [20, 50]:
+        self.assertEqual(s.fit_speed(45, 30), 1)
+        self.assertEqual(s.fit_speed(20, 30), 1)
+        self.assertAlmostEqual(s.fit_speed(55, 30), 55 / 50)
+        for length in [15, 60]:
             with self.assertRaises(ValueError):
                 s.fit_speed(length, 30)
