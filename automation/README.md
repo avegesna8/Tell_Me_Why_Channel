@@ -228,8 +228,10 @@ same 0.8–1.25 speed limits; final duration must be within one second of the ta
 Before storyboard, narration or image generation, each new long-form script gets
 free deterministic checks plus one cached structured editorial review using
 `OPENAI_REVIEW_MODEL`, or `OPENAI_PLAN_MODEL` when no separate reviewer is set.
-The reviewer may return one polished revision in that same call. There is no
-multi-pass LLM loop. A retry reuses `script-quality.json` unless the script, brief,
+The reviewer may return one polished revision in that same call. If an otherwise
+approved revision is only too short, one additional low-cost length correction is
+allowed; other failures do not create a multi-pass loop. A retry reuses
+`script-quality.json` unless the script, brief,
 model or review mode changes. The original draft remains in `script.draft.txt`.
 The review requires all final scores to be at least 7/10, no remaining high-severity
 issue, a reasonable word count, and narration-safe formatting before any audio or

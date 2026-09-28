@@ -43,6 +43,22 @@ class ScriptQualityTests(unittest.TestCase):
                 q.review_script(draft, {'idea':'A topic','minutes':1}, Path(tmp))
             self.assertFalse(json.loads((Path(tmp)/'script-quality.json').read_text())['approved'])
 
+    def test_approved_but_short_review_gets_one_length_correction(self):
+        short = ' '.join(f'Short point {i} is useful.' for i in range(15))
+        expanded = ' '.join(f'Expanded point {i} adds a clear useful detail.' for i in range(24))
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', side_effect=[review_response(script=short),
+                                              review_response(script=expanded)]) as post:
+            result = q.review_script(draft, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertEqual(result, expanded)
+            self.assertEqual(post.call_count, 2)
+            retry_payload = post.call_args_list[1].args[3]
+            self.assertIn('Expand it to at least 94 words', retry_payload['instructions'])
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertTrue(report['length_retry'])
+
     def test_deterministic_checks_reject_non_narration_format(self):
         findings = q.deterministic_findings('[excited]\nhttps://example.com ' + ('word ' * 70), 1)
         self.assertTrue(any('URL' in finding for finding in findings))
