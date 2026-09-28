@@ -39,3 +39,9 @@ class SpokenFormattingTests(unittest.TestCase):
     def test_common_initialism_is_spelled_automatically(self):
         value, report = prepare_speech_text("GTA 5 became a major release.")
         self.assertIn("<GTA|JH IY1 . T IY1 . EY1> 5", value)
+
+    def test_known_tts_mispronunciation_is_annotated_without_changing_visible_script(self):
+        value, report = prepare_speech_text("The pricier ticket may be worthwhile.")
+        self.assertIn("<pricier|P R AY1 S IY0 ER0>", value)
+        self.assertEqual(report["pronunciations_applied"], [{
+            "text": "pricier", "cmu": "P R AY1 S IY0 ER0", "occurrences": 1}])

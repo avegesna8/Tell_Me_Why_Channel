@@ -60,7 +60,10 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True,
     spoken, changes = normalize_spoken(script)
     applied, ignored = [], []
     if phoneme_annotations:
-        automatic = [{"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"}]
+        automatic = [
+            {"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"},
+            {"text": "pricier", "cmu": "P R AY1 S IY0 ER0"},
+        ]
         automatic = [entry for entry in automatic
                      if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken)]
         suggestions = list(pronunciations or [])
