@@ -69,6 +69,16 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(request.call_count, 2)
             self.assertEqual(sum(c.args[0] for c in sleep.call_args_list), 45)
 
+    def test_temporary_server_error_retries_then_succeeds(self):
+        failure = Mock(ok=False, status_code=500, headers={'x-request-id': 'req-test'})
+        success = Mock(ok=True)
+        with patch.dict(p.os.environ, {'OPENAI_API_KEY': 'test'}), patch.object(
+            p.requests, 'post', side_effect=[failure, success]
+        ) as post, patch.object(p.time, 'sleep') as sleep, patch.object(p.random, 'uniform', return_value=0):
+            self.assertIs(p.api_post('https://api.openai.com/v1', 'OPENAI_API_KEY', '/images/generations', {}), success)
+            self.assertEqual(post.call_count, 2)
+            self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 10)
+
     def test_rate_limit_retries_are_bounded(self):
         with patch.object(p, "_api_post_once", side_effect=p.TemporaryRateLimit("limited", "")) as request, patch.object(p.time, "sleep"):
             with self.assertRaisesRegex(RuntimeError, "Retry limit reached"):
@@ -131,6 +141,21 @@ class PipelineTests(unittest.TestCase):
             value["scenes"][0]["prompt"] = "Changed visual"
             p.generate_assets(value, Path(tmp), "voice")
             self.assertEqual(api.call_count, 5)
+
+    def test_gpt_image_2_default_reuses_paid_legacy_image(self):
+        audio, image = Mock(), Mock()
+        audio.content = b"test audio"; audio.headers = {"Content-Type": "audio/mpeg"}
+        image.json.return_value = {"data": [{"b64_json": "aW1hZ2U="}]}
+        value = board(); value['scenes'] = value['scenes'][:1]
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                p, "api_post", side_effect=[audio, image]) as api, patch.object(p, "check_image_text"):
+            root = Path(tmp)
+            with patch.dict(p.os.environ, {"OPENAI_IMAGE_MODEL": "gpt-image-1.5"}):
+                p.generate_assets(value, root, "voice")
+            with patch.dict(p.os.environ, {}, clear=False):
+                p.os.environ.pop("OPENAI_IMAGE_MODEL", None)
+                p.generate_assets(value, root, "voice")
+            self.assertEqual(api.call_count, 2)
 
     def test_real_render(self):
         # Real FFmpeg smoke test: two scenes, zoom/fade/cut, music, burned and soft captions.

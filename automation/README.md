@@ -131,6 +131,7 @@ Optional repository variables for script review:
 
 - OPENAI_PLAN_MODEL: writer/planner model; defaults to `gpt-4.1-mini`.
 - OPENAI_REVIEW_MODEL: single-pass reviewer; defaults to the planning model.
+- OPENAI_IMAGE_MODEL: scene and thumbnail model; defaults to `gpt-image-2`.
 - SCRIPT_WEB_FACT_CHECK: keep `0` for the low-cost default; set `1` to allow web search in that same review call.
 - SMTP_USERNAME, SMTP_PASSWORD (an app password if supported by your provider)
 - YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
@@ -162,6 +163,14 @@ Every approved upload is explicitly configured as private with English metadata
 and spoken audio (`en`), no paid product placement, embedding allowed, the standard
 YouTube license, public statistics visible, and the queue's made-for-kids and
 synthetic-media declarations. The Education category remains the queue default.
+
+New storyboards cap medium-quality images at one quarter of their scenes; routine
+scenes use low quality while the opening, closing, and selected key reveals retain
+medium quality. When a Short scene strongly matches an existing long-form scene,
+the pipeline creates a local vertical crop and records the reuse in
+`short/reused-images.json`, avoiding another image API call. Unmatched Short scenes
+are generated normally. Temporary provider HTTP 500, 502, 503, and 504 responses
+retry automatically with bounded backoff.
 
 The long video gets a generated reference-based 1280×720 thumbnail. The Short
 gets its own title/description/tags, but no custom thumbnail is applied through

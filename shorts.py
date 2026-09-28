@@ -1,7 +1,10 @@
 """Separate, resumable Shorts adaptation of a saved long-form storyboard."""
+import hashlib
 import json
 import math
 import os
+from pathlib import Path
+import re
 
 import pipeline as p
 
@@ -81,12 +84,74 @@ def fit_speed(audio_seconds, target):
     return speed
 
 
+MATCH_STOP_WORDS = {
+    'about', 'after', 'again', 'also', 'and', 'are', 'because', 'been', 'before', 'being', 'but', 'can',
+    'could', 'does', 'for', 'from', 'have', 'into', 'its', 'just', 'like', 'more', 'not', 'only', 'our',
+    'that', 'the', 'their', 'then', 'there', 'these', 'they', 'this', 'through', 'was', 'what', 'when',
+    'where', 'which', 'while', 'why', 'will', 'with', 'would', 'you', 'your'
+}
+
+
+def scene_terms(scene):
+    text = scene.get('narration', '') + ' ' + scene.get('prompt', '')
+    return {word for word in re.findall(r"[a-z0-9]+", text.lower())
+            if len(word) > 2 and word not in MATCH_STOP_WORDS}
+
+
+def reuse_long_images(source, parent, short_board, image_reference=None):
+    """Center-crop strongly matching long-form scenes for the Short without an image API call."""
+    long_assets, short_assets = parent / 'assets', parent / 'short' / 'assets'
+    short_assets.mkdir(parents=True, exist_ok=True)
+    candidates = [(scene, long_assets / f"scene-{scene['id']:03}.png") for scene in source['scenes']]
+    candidates = [(scene, path) for scene, path in candidates if path.is_file()]
+    reference = Path(image_reference).read_bytes() if image_reference else None
+    used, mappings = set(), []
+    for scene in short_board['scenes']:
+        target = short_assets / f"scene-{scene['id']:03}.png"
+        if target.exists():
+            continue
+        short_terms = scene_terms(scene)
+        short_character = scene.get('show_character', scene['id'] in (1, len(short_board['scenes'])))
+        ranked = []
+        for long_scene, source_path in candidates:
+            if long_scene['id'] in used:
+                continue
+            long_character = long_scene.get('show_character', long_scene['id'] in (1, len(source['scenes'])))
+            if long_character != short_character:
+                continue
+            common = short_terms & scene_terms(long_scene)
+            coverage = len(common) / max(1, len(short_terms))
+            ranked.append((coverage, len(common), long_scene, source_path))
+        if not ranked:
+            continue
+        coverage, common_count, long_scene, source_path = max(ranked, key=lambda item: (item[0], item[1]))
+        if coverage < .18 or common_count < 2:
+            continue
+        p.run_ffmpeg(['-i', str(source_path), '-vf',
+                      'scale=1024:1536:force_original_aspect_ratio=increase,crop=1024:1536',
+                      '-frames:v', '1', str(target)])
+        _, payload = p.asset_payloads(short_board, scene, '', require_voice=False)
+        signature_data = {'payload': payload, 'base': 'openai'}
+        if reference and short_character:
+            signature_data['reference_sha256'] = hashlib.sha256(reference).hexdigest()
+        p.save_json(short_assets / f"scene-{scene['id']:03}.image.json",
+                    {'signature': p.fingerprint(signature_data), 'file': target.name,
+                     'reused_from': str(source_path.relative_to(parent))})
+        used.add(long_scene['id'])
+        mappings.append({'short_scene': scene['id'], 'long_scene': long_scene['id'],
+                         'term_coverage': round(coverage, 3)})
+        print(f"Reusing long-form scene {long_scene['id']} for Short scene {scene['id']}…", flush=True)
+    p.save_json(parent / 'short' / 'reused-images.json', {'mappings': mappings})
+    return mappings
+
+
 def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_reference=None,
                  fps=30, subtitle_mode='burn', music=None, music_volume=0.12):
     directory = parent / 'short'
     script = short_script(source, directory, seconds).read_text()
     path = directory / 'storyboard.json'
-    if not path.exists():
+    new_storyboard = not path.exists()
+    if new_storyboard:
         count = min(len(script.split()), math.ceil(seconds / 4))
         p.plan(script, path, count, source['style_guide'], '9:16')
         board = json.loads(path.read_text())
@@ -98,9 +163,12 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
         raise ValueError('Short storyboard differs from script or is not vertical. Remove short/storyboard.json to replan.')
     from production_review import review_storyboard
     reviewed_board = review_storyboard(board, directory)
+    if new_storyboard:
+        reviewed_board = p.limit_medium_scenes(reviewed_board)
     if reviewed_board != board:
         board = reviewed_board
         p.save_json(path, board)
+    reuse_long_images(source, parent, board, image_reference)
     p.generate_assets(board, directory / 'assets', voice, runpod=runpod,
                       narration_mode='continuous', image_reference=image_reference)
     raw_duration = p.duration(p.audio_asset(directory / 'assets', 'narration'))

@@ -79,6 +79,12 @@ class TemporaryRateLimit(RuntimeError):
         self.retry_after = retry_after
 
 
+class TemporaryServerError(RuntimeError):
+    def __init__(self, message, retry_after=""):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def retry_delay(header, attempt):
     minimum = 0.0
     if header:
@@ -100,13 +106,15 @@ def api_post(base, key_name, endpoint, payload, *, retries=3, image_reference=No
             if image_reference is not None:
                 return _api_post_once(base, key_name, endpoint, payload, image_reference=image_reference)
             return _api_post_once(base, key_name, endpoint, payload)
-        except TemporaryRateLimit as exc:
+        except (TemporaryRateLimit, TemporaryServerError) as exc:
             if attempt == retries:
                 raise RuntimeError(f"{exc} Retry limit reached; rerun later to resume saved work.") from exc
-            delay = retry_delay(exc.retry_after, attempt)
+            delay = retry_delay(exc.retry_after, attempt) if isinstance(exc, TemporaryRateLimit) else max(
+                float(exc.retry_after) if str(exc.retry_after).isdigit() else 0, 10 * 2 ** attempt) + random.uniform(0, 3)
             if delay > 300:
                 raise RuntimeError(f"{exc} Provider requested a long wait ({math.ceil(delay)}s); rerun after that delay.") from exc
-            print(f"Temporary rate limit. Retry {attempt+1}/{retries} in {math.ceil(delay)}s…", flush=True)
+            reason = "rate limit" if isinstance(exc, TemporaryRateLimit) else "server error"
+            print(f"Temporary {reason}. Retry {attempt+1}/{retries} in {math.ceil(delay)}s…", flush=True)
             remaining = delay
             while remaining > 0:
                 step = min(10, remaining)
@@ -152,6 +160,12 @@ def _api_post_once(base, key_name, endpoint, payload, *, image_reference=None):
         reporter.join()
     if not response.ok:
         # Do not echo raw provider responses, which may contain user data.
+        if response.status_code in (500, 502, 503, 504):
+            request_id = response.headers.get("x-request-id", "")
+            suffix = f" Request ID: {request_id}." if request_id else ""
+            raise TemporaryServerError(
+                f"{label}: HTTP {response.status_code} temporary provider error.{suffix}",
+                response.headers.get("Retry-After", ""))
         if response.status_code == 429:
             try:
                 body = response.json()
@@ -327,6 +341,21 @@ def automatic_scene_count(script, seconds_per_scene=6):
     return max(1, min(100, math.ceil(len(script.split()) / 2.5 / seconds_per_scene)))
 
 
+def limit_medium_scenes(board):
+    """Reserve medium-cost generation for at most one quarter of a new storyboard."""
+    scenes = board["scenes"]
+    budget = min(len(scenes), max(1, math.ceil(len(scenes) / 4)))
+    requested = [scene for scene in scenes if scene.get("image_quality", "low") == "medium"]
+    priority = []
+    for scene in (scenes[0], scenes[-1], *requested):
+        if scene not in priority:
+            priority.append(scene)
+    selected = {scene["id"] for scene in priority[:budget]}
+    for scene in scenes:
+        scene["image_quality"] = "medium" if scene["id"] in selected else "low"
+    return board
+
+
 def plan(script, output, scene_count, style, aspect):
     if not script.strip():
         raise ValueError("Script is empty.")
@@ -368,7 +397,8 @@ def plan(script, output, scene_count, style, aspect):
         "Vary camera composition. Estimate duration at 150 words/minute. "
         "Make the visual pacing snappy: each scene should introduce a new useful image, example, close-up "
         "or comparison. Mix detailed key scenes with simple cutaways. Keep one illustration style. "
-        "Use image_quality=medium for detailed key scenes and image_quality=low for simple cutaways. "
+        "Use image_quality=medium only for the opening, closing, and the most important detailed reveals; use low for all "
+        "ordinary explanations and simple cutaways. No more than one quarter of scenes should be medium. "
         f"Use aspect_ratio {aspect}. Shared visual style: {style}. "
         "Use mostly still motion with occasional meaningful gentle zooms and prefer cut transitions. "
         f"Recurring narrator design: {CHARACTER_DESCRIPTION} "
@@ -402,7 +432,7 @@ def plan(script, output, scene_count, style, aspect):
                 if not isinstance(scene, dict) or scene.get("id") != index:
                     raise ValueError(f"expected consecutive scene IDs 1 through {scene_count}")
                 scene["narration"] = narration
-            board = validate_board(board)
+            board = limit_medium_scenes(validate_board(board))
             if board["aspect_ratio"] != aspect:
                 raise ValueError(f"expected aspect_ratio {aspect}")
             if " ".join(scene["narration"] for scene in board["scenes"]).split() != script.split():
@@ -536,7 +566,7 @@ def asset_payloads(board, scene, voice, *, require_voice=True):
     speech = {"model": os.getenv("INDEXTTS_MODEL", "IndexTeam/IndexTTS-2"),
               "input": scene["narration"], "response_format": "mp3", "stream": False}
     speech["voice"] = voice
-    image = {"model": os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5"),
+    image = {"model": os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2"),
              "size": "1024x1536" if board["aspect_ratio"] == "9:16" else "1536x1024",
              "quality": scene.get("image_quality", "medium"), "n": 1, "output_format": "png",
              "prompt": image_prompt(board, scene)}
@@ -687,7 +717,13 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             if reference:
                 signature_data["reference_sha256"] = hashlib.sha256(reference).hexdigest()
             signature = fingerprint(signature_data)
-            if path.exists() and path.stat().st_size and stamp.exists() and json.loads(stamp.read_text()).get("signature") == signature:
+            reusable_signatures = {signature}
+            if kind == "image" and payload.get("model") == "gpt-image-2":
+                legacy_payload = {**payload, "model": "gpt-image-1.5"}
+                legacy_signature_data = {**signature_data, "payload": legacy_payload}
+                reusable_signatures.add(fingerprint(legacy_signature_data))
+            saved_signature = json.loads(stamp.read_text()).get("signature") if stamp.exists() else None
+            if path.exists() and path.stat().st_size and saved_signature in reusable_signatures:
                 print(f"Reusing {path.name}", flush=True)
                 if kind == "audio" and runpod and narration_mode == "continuous":
                     check_runpod_narration(path, tts_text, directory, runpod, signature)
@@ -1058,6 +1094,7 @@ def main():
                 if not os.getenv(key):
                     raise ValueError(f"Set {key} in .env.")
         board_path = args.out / "storyboard.json"
+        new_storyboard = not board_path.exists()
         if args.idea is not None:
             args.script = script_from_idea(args.idea, args.out, args.minutes, args.notes)
         if args.command == "plan" or (args.command == "run" and not board_path.exists()):
@@ -1074,6 +1111,8 @@ def main():
         if args.command in ("assets", "run"):
             from production_review import review_storyboard
             reviewed_board = review_storyboard(board, args.out)
+            if new_storyboard:
+                reviewed_board = limit_medium_scenes(reviewed_board)
             if reviewed_board != board:
                 board = reviewed_board
                 save_json(board_path, board)

@@ -19,6 +19,21 @@ class IdeaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.automatic_scene_count("hello", float("nan"))
 
+    def test_medium_image_quality_is_limited_to_one_quarter(self):
+        value = {'scenes': [{'id': index, 'image_quality': 'medium'} for index in range(1, 9)]}
+        result = p.limit_medium_scenes(value)
+        medium = [scene['id'] for scene in result['scenes'] if scene['image_quality'] == 'medium']
+        self.assertEqual(medium, [1, 8])
+
+    def test_default_image_model_is_gpt_image_2(self):
+        _, image = p.asset_payloads({'title': 'Test', 'style_guide': 'Ink', 'aspect_ratio': '16:9',
+            'scenes': [{'id': 1, 'narration': 'Test.', 'prompt': 'A test', 'camera_style': 'wide',
+                        'mood': 'calm', 'image_quality': 'low'}]},
+            {'id': 1, 'narration': 'Test.', 'prompt': 'A test', 'camera_style': 'wide',
+             'mood': 'calm', 'image_quality': 'low'}, '', require_voice=False)
+        self.assertEqual(image['model'], 'gpt-image-2')
+        self.assertEqual(image['quality'], 'low')
+
     def test_saved_script_resumes_and_changed_brief_is_rejected(self):
         response = Mock()
         response.json.return_value = {"status": "completed", "output": [{"content": [

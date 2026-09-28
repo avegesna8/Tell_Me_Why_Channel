@@ -130,11 +130,11 @@ def thumbnail(project, meta, comments=""):
               ('. Reviewer instructions: ' + comments.strip() if comments.strip() else ''))
     ref = reference.read_bytes()
     signature = p.fingerprint({'prompt': prompt, 'reference': p.hashlib.sha256(ref).hexdigest(),
-                              'model': os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-1.5')})
+                              'model': os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-2')})
     stamp = project / 'thumbnail-source.json'
     if path.exists() and stamp.exists() and json.loads(stamp.read_text())['signature'] == signature:
         return path
-    payload = {'model': os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-1.5'), 'prompt': prompt,
+    payload = {'model': os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-2'), 'prompt': prompt,
                'size': '1536x1024', 'quality': 'medium', 'n': 1, 'output_format': 'png'}
     result = p.api_post('https://api.openai.com/v1', 'OPENAI_API_KEY', '/images/edits', payload, image_reference=ref).json()
     raw = project / 'thumbnail-source.png'
