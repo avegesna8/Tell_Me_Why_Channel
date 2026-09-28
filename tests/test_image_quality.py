@@ -26,6 +26,12 @@ class ImageQualityTests(unittest.TestCase):
             detected, allowed_text='A story about YouTube.', dictionary={'reach', 'story', 'about'})
         self.assertEqual([item['text'] for item in suspicious], ['Cluitural', 'Creatilvity'])
 
+    def test_spelling_check_allows_hyphenated_name_from_prompt(self):
+        detected = [{'text': 'SPIDER-MAN', 'confidence': 96}]
+        suspicious = image_quality.suspicious_text(
+            detected, allowed_text='A Spider-Man story.', dictionary={'a', 'story'})
+        self.assertEqual(suspicious, [])
+
     def test_first_image_prompt_does_not_ban_lettering(self):
         board = {'title': 'Example', 'style_guide': 'Ink', 'aspect_ratio': '16:9',
                  'scenes': [{'id': 1, 'narration': 'Hello', 'prompt': 'A shop sign',
@@ -66,8 +72,28 @@ class ImageQualityTests(unittest.TestCase):
             self.assertTrue(report['passed'])
             self.assertEqual(report['attempt'], 2)
 
+    def test_spelling_retry_safety_rejection_uses_neutral_text_free_image(self):
+        failed = {'passed': False, 'detected_text': [{'text': 'WRNG', 'confidence': 91}],
+                  'suspicious_text': [{'text': 'WRNG', 'confidence': 91}], 'image_sha256': 'old',
+                  'policy_version': 2}
+        passed = {'passed': True, 'detected_text': [], 'suspicious_text': [],
+                  'image_sha256': 'new', 'policy_version': 2}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); assets = root / 'assets'; assets.mkdir()
+            image = assets / 'scene-001.png'; image.write_bytes(b'old')
+            payload = {'prompt': 'Draw a trademarked subject.', 'model': 'image', 'size': '1536x1024'}
+            with patch('image_quality.cached_scene', return_value=None), \
+                 patch('image_quality.inspect', side_effect=[failed, passed]), \
+                 patch.object(pipeline, 'request_image_bytes',
+                              side_effect=[RuntimeError('rejected by the safety system'), b'new']) as request:
+                pipeline.check_image_text(image, payload, b'reference', assets, 'scene-001', 'signature')
+            self.assertEqual(request.call_count, 2)
+            self.assertIsNone(request.call_args.args[1] if len(request.call_args.args) > 1 else None)
+            self.assertNotIn('trademarked subject', request.call_args.args[0]['prompt'])
+            self.assertTrue((assets / 'scene-001.prompt-text-safety-fallback.txt').exists())
+
     def test_second_misspelling_attempt_uses_text_safe_visual(self):
-        failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+        failed = {'passed': False, 'attempt': 2, 'policy_version': 2, 'detected_text': [{'text': 'WRNG'}],
                   'suspicious_text': [{'text': 'WRNG'}],
                   'first_detected_text': [{'text': 'BAD'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
@@ -101,8 +127,29 @@ class ImageQualityTests(unittest.TestCase):
             report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
             self.assertTrue(report['passed'])
 
+    def test_old_spelling_report_is_rechecked_before_regeneration(self):
+        old = {'passed': False, 'attempt': 1,
+               'detected_text': [{'text': 'SPIDER-MAN'}],
+               'suspicious_text': [{'text': 'SPIDER-MAN'}],
+               'image_sha256': 'same', 'prompt_signature': 'signature'}
+        passed = {'passed': True, 'detected_text': old['detected_text'],
+                  'suspicious_text': [], 'image_sha256': 'same', 'policy_version': 2}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); assets = root / 'assets'; assets.mkdir()
+            image = assets / 'scene-001.png'; image.write_bytes(b'image')
+            with patch('image_quality.cached_scene', return_value=old), \
+                 patch('image_quality.inspect', return_value=passed) as inspect, \
+                 patch.object(pipeline, 'request_image_bytes') as request:
+                pipeline.check_image_text(
+                    image, {'prompt': 'A Spider-Man story.'}, None, assets, 'scene-001', 'signature')
+            inspect.assert_called_once()
+            request.assert_not_called()
+            report = json.loads((root / 'image-quality.json').read_text())['scenes']['scene-001']
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['policy_version'], 2)
+
     def test_failed_text_safe_fallback_still_blocks_misspellings(self):
-        failed = {'passed': False, 'attempt': 2, 'detected_text': [{'text': 'WRNG'}],
+        failed = {'passed': False, 'attempt': 2, 'policy_version': 2, 'detected_text': [{'text': 'WRNG'}],
                   'suspicious_text': [{'text': 'WRNG'}],
                   'image_sha256': 'same', 'prompt_signature': 'signature'}
         still_failed = {'passed': False, 'detected_text': [{'text': 'Mispeling'}],

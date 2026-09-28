@@ -498,19 +498,41 @@ def request_image_bytes(payload, reference=None):
     return base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
 
 
+def request_text_qa_image(payload, reference, directory, stem):
+    try:
+        return request_image_bytes(payload, reference)
+    except RuntimeError as exc:
+        if "safety system" not in str(exc).lower():
+            raise
+        size = payload.get("size", "1536x1024")
+        orientation = "vertical" if str(size).startswith("1024x1536") else "widescreen"
+        fallback = {**payload, "prompt": (
+            f"Create a family-safe, nonviolent hand-drawn 2D explainer illustration in a {orientation} composition. "
+            "Show a friendly original stick-figure narrator examining neutral abstract shapes in a clean room. "
+            "Use clear visual hierarchy, clean ink outlines, flat colors, and restrained shading. Do not depict real "
+            "people, recognizable fictional characters, brands, logos, weapons, injuries, readable text, letters, "
+            "numbers, watermarks, or copyrighted imagery. Use only blank, unmarked surfaces. Still image."
+        )}
+        atomic_write(directory / f"{stem}.prompt-text-safety-fallback.txt", fallback["prompt"].encode())
+        print(f"Image safety filter rejected {stem} text correction; generating a neutral text-free visual…", flush=True)
+        return request_image_bytes(fallback)
+
+
 def check_image_text(path, payload, reference, directory, stem, signature):
     """Allow valid image text; retry misspellings before using a text-safe fallback."""
     from image_quality import cached_scene, inspect
     report_path = directory.parent / "image-quality.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else {"scenes": {}}
     scene_report = cached_scene(report_path, stem, path, signature)
+    loaded_from_cache = scene_report is not None
     if scene_report is None:
         print(f"Checking {stem} for misspelled text…", flush=True)
         scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=1, prompt_signature=signature)
         report.setdefault("scenes", {})[stem] = scene_report
         save_json(report_path, report)
-    if scene_report is not None and "suspicious_text" not in scene_report:
+    if loaded_from_cache and ("suspicious_text" not in scene_report or
+                              scene_report.get("policy_version", 1) < 2):
         history = {key: value for key, value in scene_report.items()
                    if key in ("attempt", "first_detected_text", "second_detected_text")}
         scene_report = inspect(path, payload["prompt"])
@@ -523,7 +545,7 @@ def check_image_text(path, payload, reference, directory, stem, signature):
         print(f"OCR found likely misspellings in {stem} ({words}); regenerating with spelling correction…", flush=True)
         retry = {**payload, "prompt": spelling_retry_prompt(payload["prompt"], first_detected)}
         atomic_write(directory / f"{stem}.prompt-text-retry.txt", retry["prompt"].encode())
-        atomic_write(path, request_image_bytes(retry, reference))
+        atomic_write(path, request_text_qa_image(retry, reference, directory, stem))
         scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=2, prompt_signature=signature, first_detected_text=first_detected)
         report.setdefault("scenes", {})[stem] = scene_report
@@ -535,7 +557,7 @@ def check_image_text(path, payload, reference, directory, stem, signature):
         print(f"OCR still found likely misspellings in {stem} ({words}); generating a text-free visual…", flush=True)
         fallback = {**payload, "prompt": text_safe_fallback_prompt(payload["prompt"])}
         atomic_write(directory / f"{stem}.prompt-text-fallback.txt", fallback["prompt"].encode())
-        atomic_write(path, request_image_bytes(fallback, reference))
+        atomic_write(path, request_text_qa_image(fallback, reference, directory, stem))
         scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=3, prompt_signature=signature,
                             first_detected_text=first_detected,

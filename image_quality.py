@@ -44,9 +44,13 @@ def suspicious_text(detected, allowed_text="", dictionary=None):
     allowed = {word.casefold() for word in re.findall(r"[A-Za-z0-9]+", allowed_text)}
     suspicious = []
     for item in detected:
-        compact = re.sub(r"[^A-Za-z]", "", str(item.get("text", "")))
+        raw = str(item.get("text", ""))
+        compact = re.sub(r"[^A-Za-z]", "", raw)
         word = compact.casefold()
         if len(word) < 4 or word in dictionary or word in allowed:
+            continue
+        components = [part.casefold() for part in re.findall(r"[A-Za-z]+", raw)]
+        if len(components) > 1 and all(part in dictionary or part in allowed for part in components):
             continue
         suspicious.append(item)
     return suspicious
@@ -57,7 +61,8 @@ def inspect(path, allowed_text=""):
     detected = ocr_image(path)
     suspicious = suspicious_text(detected, allowed_text)
     return {"passed": not suspicious, "detected_text": detected, "suspicious_text": suspicious,
-            "image_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            "image_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "policy_version": 2}
 
 
 def cached_scene(report_path, stem, path, signature):
