@@ -36,6 +36,11 @@ class SpokenFormattingTests(unittest.TestCase):
         self.assertIn("one dollar", value)
         self.assertNotIn("dollars million", value)
 
+    def test_em_dash_becomes_speech_only_sentence_break(self):
+        value, report = prepare_speech_text("It sounds simple—but there is a catch.")
+        self.assertEqual(value, "It sounds simple. But there is a catch.")
+        self.assertIn({"written": "—b", "spoken": ". B"}, report["normalizations"])
+
     def test_common_initialism_is_spelled_automatically(self):
         value, report = prepare_speech_text("GTA 5 became a major release.")
         self.assertIn("<GTA|JH IY1 . T IY1 . EY1> 5", value)

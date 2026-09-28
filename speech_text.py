@@ -39,6 +39,9 @@ def normalize_spoken(text):
         return _quantity(amount) + (" " + magnitude if magnitude else "") + (" dollar" if singular else " dollars")
     replace(r"\$([0-9][0-9,]*(?:\.[0-9]+)?)\s*(thousand|million|billion|trillion)?\b", currency)
     replace(r"\b([0-9][0-9,]*(?:\.[0-9]+)?)%", lambda m: _quantity(m.group(1)) + " percent")
+    # IndexTTS does not reliably pause at an em dash. Use a speech-only sentence break;
+    # the written script and captions retain their original punctuation.
+    replace(r"\s*—\s*([A-Za-z])", lambda m: ". " + m.group(1).upper())
     units = {"mm": "millimeter", "cm": "centimeter", "km": "kilometer", "kg": "kilogram", "mph": "mile per hour", "fps": "frame per second", "hz": "hertz"}
     def unit(match):
         count = int(match.group(1)); name = units[match.group(2).lower()]
