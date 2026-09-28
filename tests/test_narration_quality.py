@@ -97,7 +97,30 @@ class NarrationRetryTests(unittest.TestCase):
             report = json.loads((root / 'narration-quality.json').read_text())
             self.assertTrue(report['passed'])
             self.assertEqual(report['attempt'], 2)
-            self.assertTrue((assets / 'narration.runpod-retry-job.json').parent.exists())
+            self.assertTrue((assets / 'narration.runpod-retry-1-job.json').parent.exists())
+
+    def test_cached_second_failure_requests_unique_third_attempt(self):
+        import json
+        from unittest.mock import Mock, patch
+        import pipeline
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); assets = root / 'assets'; assets.mkdir()
+            audio = assets / 'part.wav'
+            NarrationQualityTests().make_wav(audio)
+            failed = {'passed': False, 'attempt': 2, 'audio_sha256': 'second',
+                      'expected_sha256': 'expected', 'whisper_model': 'small',
+                      'matched_fraction': .7, 'signal': {}, 'warnings': [],
+                      'failures': ['mismatch'], 'mismatches': []}
+            passed = {**failed, 'passed': True, 'matched_fraction': .96,
+                      'failures': [], 'words': [{'word': 'Hello', 'start': 0, 'end': 1}],
+                      'audio_sha256': 'third'}
+            runpod = Mock(); runpod.synthesize.return_value = audio.read_bytes()
+            with patch('narration_quality.cached_report', return_value=failed), \
+                 patch('narration_quality.inspect', return_value=passed):
+                pipeline.check_runpod_narration(audio, 'Hello', assets, runpod, 'signature', report_stem='part')
+            job_path = runpod.synthesize.call_args.args[1]
+            self.assertEqual(job_path.name, 'part.runpod-retry-2-job.json')
+            self.assertEqual(json.loads((root/'part-quality.json').read_text())['attempt'], 3)
 
 
 if __name__ == '__main__':

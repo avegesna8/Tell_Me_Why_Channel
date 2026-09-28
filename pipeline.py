@@ -593,19 +593,22 @@ def check_runpod_narration(path, text, directory, runpod, signature, *, report_s
         save_json(directory.parent / transcript_name, {
             "audio_sha256": report["audio_sha256"], "model": model, "words": words})
         save_json(report_path, report)
-    if not report["passed"]:
-        retry_path = directory / f"{report_stem}.runpod-retry-job.json"
-        retry_signature = fingerprint({"base": signature, "quality_retry": 1})
-        print("Narration quality check failed; requesting one fresh RunPod attempt…", flush=True)
+    while not report["passed"] and report.get("attempt", 1) < 3:
+        retry_number = report.get("attempt", 1)
+        retry_path = directory / f"{report_stem}.runpod-retry-{retry_number}-job.json"
+        retry_signature = fingerprint({"base": signature, "quality_retry": retry_number})
+        print(f"Narration quality check failed; requesting fresh RunPod attempt {retry_number + 1}/3…", flush=True)
         atomic_write(path, runpod.synthesize(text, retry_path, retry_signature))
         report = inspect(path, text, model)
-        report.update(attempt=2, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
+        report.update(attempt=retry_number + 1, expected_sha256=hashlib.sha256(text.encode()).hexdigest())
         words = report.pop("words")
         save_json(directory.parent / transcript_name, {
             "audio_sha256": report["audio_sha256"], "model": model, "words": words})
         save_json(report_path, report)
     if not report["passed"]:
-        raise RuntimeError("Narration failed local quality checks after one retry. "
+        reasons = "; ".join(report.get("failures", [])) or "unspecified local quality failure"
+        raise RuntimeError(f"Narration failed local quality checks after three attempts "
+                           f"({report.get('matched_fraction', 0):.0%} transcript match): {reasons}. "
                            "Review narration-quality.json and transcript.json; images were not generated.")
     print(f"Narration quality passed ({report['matched_fraction']:.0%} transcript match).", flush=True)
 
