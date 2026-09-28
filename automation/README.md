@@ -268,8 +268,9 @@ for manually chosen background music when the library option is disabled.
 
 Each video gets one cached text-planning request after narration alignment. Music
 and effects are both optional. Selected effects are bound to actual word timestamps,
-with conservative count and spacing limits. FFmpeg mixes quiet normalized audio,
-ducks music under the narrator and applies fades and peak limiting; video frames
+with conservative count and spacing limits. FFmpeg keeps quiet normalized music
+at a steady level beneath narration and pauses, with opening and ending fades plus
+peak limiting; video frames
 and subtitle streams are copied. The original narration-only video is retained
 as `video.narration.mp4` for retry-safe mixing. Choices appear in `soundtrack.json`,
 the review report and the GitHub artifact. Required credits are added to metadata.

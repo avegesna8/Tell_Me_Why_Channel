@@ -218,7 +218,7 @@ def mix_video(project, entries, plan):
     current = file_hash(video)
     by_id = {e['id']:e for e in entries}
     selected = {c['effect_id'] for c in plan['effects']} | ({plan['music_id']} if plan['music_id'] else set())
-    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':4})
+    signature = p.fingerprint({'plan':plan, 'files':{e['id']:e['sha256'] for e in entries if e['id'] in selected}, 'mix_version':5})
     if current == stamp.get('output_hash') and signature == stamp.get('signature'):
         return
     # Keep a dry source and record both sides of replacement for interruption-safe retries.
@@ -241,11 +241,10 @@ def mix_video(project, entries, plan):
     if plan['music_id']:
         args += ['-stream_loop','-1','-i',str(by_id[plan['music_id']]['path'])]
         next_input = 2
-        filters = [f'[0:a]{voice_mix}{fmt},asplit=2[voice][key]',
+        filters = [f'[0:a]{voice_mix}{fmt}[voice]',
             f'[1:a]atrim=duration={seconds},asetpts=PTS-STARTPTS,loudnorm=I=-28:TP=-4:LRA=7,{fmt},'
-            f'afade=t=in:d={min(.7,seconds/3)},afade=t=out:st={seconds-fade}:d={fade}[music]',
-            '[music][key]sidechaincompress=threshold=0.025:ratio=6:attack=20:release=350:makeup=1[bed]']
-        inputs.append('[bed]')
+            f'afade=t=in:d={min(.7,seconds/3)},afade=t=out:st={seconds-fade}:d={fade}[music]']
+        inputs.append('[music]')
     for i,cue in enumerate(plan['effects'],next_input):
         args += ['-i',str(by_id[cue['effect_id']]['path'])]
         length = cue['clip_seconds']; intro = cue.get('reserved_intro', False)
@@ -287,7 +286,8 @@ def mix_video(project, entries, plan):
     p.save_json(project/'soundtrack.json', {**plan,'music_file':by_id[plan['music_id']]['file'] if plan['music_id'] else None,
         'mix':{'music_lufs':-28,'effects_lufs':-26,'intro_effect_lufs':-15 if intro_cue else None,
                'intro_voice_duck':0.72 if intro_cue else None,'intro_duck_seconds':duck_seconds,
-               'ducking':bool(plan['music_id']) or bool(intro_cue),'duration_seconds':seconds}})
+               'music_volume_mode':'constant','music_ducking':False,
+               'intro_voice_ducking':bool(intro_cue),'duration_seconds':seconds}})
     output.replace(video)
     print(f'Added library soundtrack: {plan["music_id"]}, {len(plan["effects"])} effects.',flush=True)
 

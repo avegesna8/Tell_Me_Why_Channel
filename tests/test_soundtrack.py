@@ -59,7 +59,7 @@ class SoundtrackTests(unittest.TestCase):
                 self.assertEqual(api.call_count,1)
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
-    def test_real_mix_ducks_music_preserves_duration_and_resumes_after_interruption(self):
+    def test_real_mix_keeps_music_steady_preserves_duration_and_resumes_after_interruption(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             p.run_ffmpeg(['-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=8',
@@ -93,8 +93,13 @@ class SoundtrackTests(unittest.TestCase):
             def rms(start,end):
                 values=samples[int(start*48000):int(end*48000)]
                 return math.sqrt(sum(v*v for v in values)/len(values))
-            self.assertLess(rms(2.8,3.3),rms(1.0,1.5)*.65)
-            self.assertGreater(rms(5,5.5),rms(2.8,3.3)*1.5)
+            quiet_music = rms(1.0,1.5)
+            under_voice = rms(2.8,3.3)
+            after_voice = rms(5,5.5)
+            self.assertGreater(under_voice, quiet_music*.85)
+            self.assertLess(under_voice, quiet_music*1.15)
+            self.assertGreater(after_voice, quiet_music*.85)
+            self.assertLess(after_voice, quiet_music*1.15)
             with patch.object(p,'run_ffmpeg') as render:
                 s.mix_video(root,entries,{'music_id':None,'effects':[],'credits':[]})
                 render.assert_not_called()
