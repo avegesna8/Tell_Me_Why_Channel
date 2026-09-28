@@ -46,6 +46,7 @@ class IdeaTests(unittest.TestCase):
             self.assertIn("And now you know why", payload["instructions"])
             self.assertIn("So yeah, thanks for tuning in, and I’ll see you in the next video", payload["instructions"])
             self.assertIn("human discourse markers", payload["instructions"])
+            self.assertIn("‘like,’ ‘kind of,’ ‘basically,’", payload["instructions"])
             self.assertIn("six to ten total", payload["instructions"])
             self.assertIn("zero to two for a one-minute Short", payload["instructions"])
             self.assertIn("brief contextual pause", payload["instructions"])
