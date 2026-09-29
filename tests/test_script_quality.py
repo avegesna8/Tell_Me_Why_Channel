@@ -75,6 +75,27 @@ class ScriptQualityTests(unittest.TestCase):
             self.assertTrue(report['approved'])
             self.assertTrue(report['correction_retry'])
 
+    def test_overlong_sentence_is_split_locally_after_correction(self):
+        long_sentence = 'This ' + ' '.join(f'detail{i}' for i in range(105)) + ', and it finishes clearly.'
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', side_effect=[review_response(script=long_sentence),
+                                              review_response(script=long_sentence)]) as post:
+            result = q.review_script(draft, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertEqual(post.call_count, 2)
+            self.assertFalse(q.deterministic_findings(result, 1))
+            self.assertEqual(len(result.split()), len(long_sentence.split()))
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertTrue(report['local_sentence_repair'])
+
+    def test_sentence_splitter_uses_natural_boundary(self):
+        sentence = ('One ' + ' '.join(f'word{i}' for i in range(30)) +
+                    ', because ' + ' '.join(f'more{i}' for i in range(25)) + '.')
+        repaired = q.split_overlong_sentences(sentence)
+        self.assertNotIn('longer than 48 words', '; '.join(q.deterministic_findings(repaired, 1)))
+        self.assertIn('. Because ', repaired)
+
     def test_deterministic_checks_reject_non_narration_format(self):
         findings = q.deterministic_findings('[excited]\nhttps://example.com ' + ('word ' * 70), 1)
         self.assertTrue(any('URL' in finding for finding in findings))

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 8
+VERSION = 9
 SCORE_KEYS = ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential')
 
 
@@ -28,6 +28,36 @@ def deterministic_findings(script, minutes):
     if len(normalized) != len(set(normalized)):
         findings.append('Narration repeats an entire sentence.')
     return findings
+
+
+def split_overlong_sentences(script, maximum=48):
+    """Split rare overlong model sentences without changing their wording or word count."""
+    sentences = [part.strip() for part in re.split(r'(?<=[.!?])\s+', script.strip()) if part.strip()]
+    repaired = []
+    conjunctions = {'and', 'but', 'so', 'because', 'while', 'although', 'though', 'which', 'when'}
+    for sentence in sentences:
+        chunks = [sentence]
+        while len(chunks[-1].split()) > maximum:
+            words = chunks.pop().split()
+            upper = min(40, len(words) - 12)
+            lower = min(24, upper)
+            punctuated = [i for i in range(lower, upper + 1) if words[i - 1].endswith((',', ';', ':'))]
+            conjunction = [i for i in range(lower, upper + 1)
+                           if words[i].lower().strip("“”\"'.,;:!?") in conjunctions]
+            split_at = (min(punctuated, key=lambda i: abs(i - 34)) if punctuated else
+                        min(conjunction, key=lambda i: abs(i - 34)) if conjunction else upper)
+            left = words[:split_at]
+            right = words[split_at:]
+            left[-1] = left[-1].rstrip(',;:') + '.'
+            for index, word in enumerate(right):
+                match = re.search(r'[A-Za-z]', word)
+                if match:
+                    pos = match.start()
+                    right[index] = word[:pos] + word[pos].upper() + word[pos + 1:]
+                    break
+            chunks.extend((' '.join(left), ' '.join(right)))
+        repaired.extend(chunks)
+    return ' '.join(repaired)
 
 
 def stale_length_conflict(review, minutes):
@@ -190,6 +220,15 @@ def review_script(script, request, directory):
             no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
             correction_retry = True
             result = retry_result
+    local_sentence_repair = False
+    if (final_findings == ['Narration contains a sentence longer than 48 words.']
+            and passed_scores and no_high):
+        repaired_script = split_overlong_sentences(final_script)
+        repaired_findings = deterministic_findings(repaired_script, request['minutes'])
+        if not repaired_findings:
+            final_script = repaired_script
+            final_findings = []
+            local_sentence_repair = True
     recovered_stale_length = stale_length_conflict(review, request['minutes'])
     if recovered_stale_length:
         review['remaining_issues'] = []
@@ -201,6 +240,7 @@ def review_script(script, request, directory):
               'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
               'final_deterministic_findings': final_findings, 'correction_retry': correction_retry,
+              'local_sentence_repair': local_sentence_repair,
               'recovered_stale_length_review': recovered_stale_length,
               'sources': _sources(result)}
     p.save_json(path, report)
