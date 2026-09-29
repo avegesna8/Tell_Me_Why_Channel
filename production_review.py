@@ -19,7 +19,7 @@ def _response_text(result):
     return ''.join(parts)
 
 
-def review_storyboard(board, directory):
+def review_storyboard(board, directory, _attempt=1):
     directory = Path(directory)
     path = directory / 'production-review.json'
     model = os.getenv('OPENAI_REVIEW_MODEL') or os.getenv('OPENAI_PLAN_MODEL', 'gpt-4.1-mini')
@@ -27,9 +27,17 @@ def review_storyboard(board, directory):
     if path.exists():
         cached = json.loads(path.read_text())
         if signature in (cached.get('signature'), cached.get('final_signature')):
-            if not cached.get('approved'):
-                raise ValueError('Pre-production review did not approve this plan. Review production-review.json; no assets were generated.')
-            return cached['final_board']
+            if cached.get('approved'):
+                return cached['final_board']
+            attempts = int(cached.get('attempts', 1))
+            if attempts >= 2:
+                reasons = '; '.join(item.get('reason', '') for item in cached.get('remaining_issues', []) if item.get('reason'))
+                detail = f' Remaining issues: {reasons}' if reasons else ''
+                raise ValueError('Pre-production review did not approve this plan after two checks.' + detail +
+                                 ' Review production-review.json; no assets were generated.')
+            path.unlink()
+            print('Pre-production review requested changes; checking the repaired plan once more…', flush=True)
+            return review_storyboard(cached.get('final_board', board), directory, attempts + 1)
 
     issue = p.object_schema({'severity': {'type': 'string', 'enum': ['low', 'medium', 'high']},
                              'reason': {'type': 'string'}})
@@ -85,10 +93,17 @@ def review_storyboard(board, directory):
     passed = all(isinstance(scores.get(name), int) and scores[name] >= 7 for name in SCORE_NAMES)
     no_high = not any(item.get('severity') == 'high' for item in review.get('remaining_issues', []))
     approved = bool(review.get('approved')) and valid_ids and passed and no_high
-    report = {**review, 'approved': approved, 'signature': signature,
+    report = {**review, 'approved': approved, 'attempts': _attempt, 'signature': signature,
               'final_signature': p.fingerprint({'version': VERSION, 'board': final_board, 'model': model}),
               'model': model, 'final_board': final_board if valid_ids else board}
     p.save_json(path, report)
     if not approved:
-        raise ValueError('Pre-production review did not approve this plan. Review production-review.json; no assets were generated.')
+        if _attempt < 2:
+            path.unlink()
+            print('Pre-production review requested changes; checking the repaired plan once more…', flush=True)
+            return review_storyboard(final_board, directory, _attempt + 1)
+        reasons = '; '.join(item.get('reason', '') for item in review.get('remaining_issues', []) if item.get('reason'))
+        detail = f' Remaining issues: {reasons}' if reasons else ''
+        raise ValueError('Pre-production review did not approve this plan after two checks.' + detail +
+                         ' Review production-review.json; no assets were generated.')
     return final_board

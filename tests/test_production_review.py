@@ -35,6 +35,22 @@ class ProductionReviewTests(unittest.TestCase):
     def test_high_severity_issue_blocks_assets(self):
         value = board()
         with tempfile.TemporaryDirectory() as tmp, patch.object(review.p, 'api_post', return_value=response(
-                value, approved=False, score=6, severity='high')):
-            with self.assertRaisesRegex(ValueError, 'no assets were generated'):
+                value, approved=False, score=6, severity='high')) as post:
+            with self.assertRaisesRegex(ValueError, 'after two checks'):
                 review.review_storyboard(value, Path(tmp))
+            self.assertEqual(post.call_count, 2)
+            report = json.loads((Path(tmp)/'production-review.json').read_text())
+            self.assertEqual(report['attempts'], 2)
+            self.assertFalse(report['approved'])
+
+    def test_second_review_can_approve_repaired_plan(self):
+        value = board()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                review.p, 'api_post', side_effect=[response(value, approved=False, score=7, severity='medium'),
+                                                  response(value, approved=True, score=8)]) as post:
+            result = review.review_storyboard(value, Path(tmp))
+            self.assertEqual(post.call_count, 2)
+            self.assertEqual(result['scenes'][0]['prompt'], 'A clearer scene-specific visual')
+            report = json.loads((Path(tmp)/'production-review.json').read_text())
+            self.assertEqual(report['attempts'], 2)
+            self.assertTrue(report['approved'])
