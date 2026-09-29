@@ -61,7 +61,7 @@ class AnimationTests(unittest.TestCase):
             self.assertEqual((assets / "scene-005.animation.mp4").read_bytes(), b"video")
             self.assertEqual(session.post.call_count, 1)
             payload = session.post.call_args.kwargs["json"]
-            self.assertEqual(payload["ratio"], "1280:768")
+            self.assertEqual(payload["ratio"], "1280:720")
             self.assertEqual(payload["duration"], 5)
 
     def test_two_terminal_failures_fall_back_to_still(self):
@@ -87,7 +87,7 @@ class AnimationTests(unittest.TestCase):
             self.assertEqual(report["fallback"][0]["reason"], "generation_failed")
             self.assertFalse((assets / "scene-001.animation.mp4").exists())
             self.assertEqual(session.post.call_count, 2)
-            self.assertEqual(session.post.call_args.kwargs["json"]["ratio"], "768:1280")
+            self.assertEqual(session.post.call_args.kwargs["json"]["ratio"], "720:1280")
 
     def test_enabled_requires_key_before_spending(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(

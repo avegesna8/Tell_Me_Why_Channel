@@ -163,7 +163,7 @@ def generate_animations(board, directory, kind, session=None):
             url = None
             for attempt in (1, 2):
                 url = _task(client, scene, image, assets, signature, attempt, model, duration,
-                            '1280:768' if board['aspect_ratio'] == '16:9' else '768:1280', 600)
+                            '1280:720' if board['aspect_ratio'] == '16:9' else '720:1280', 600)
                 if url:
                     break
             if not url:
