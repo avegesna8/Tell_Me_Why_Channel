@@ -1152,7 +1152,7 @@ def main():
             from shorts import create_short
             create_short(board, args.out, seconds=args.short_seconds, voice=args.voice, runpod=runpod,
                          image_reference=args.image_reference, fps=args.fps, subtitle_mode=args.captions,
-                         music=args.music, music_volume=args.music_volume)
+                         music=args.music, music_volume=args.music_volume, notes=args.notes or '')
         if args.audio_library and args.command in ('run', 'render', 'short'):
             from soundtrack import apply_to_video
             if args.command != 'short':

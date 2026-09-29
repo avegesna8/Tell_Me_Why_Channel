@@ -54,6 +54,24 @@ class CloudStorageTests(unittest.TestCase):
         self.assertFalse((self.root/'projects'/'idea-1').exists())
         self.assertEqual(self.store.known, {})
 
+    def test_discard_output_deletes_only_selected_cloud_objects(self):
+        project = self.root/'projects'/'idea-1'/'revision-002'
+        project.mkdir(parents=True)
+        names = ['video.mp4', 'assets/scene.png', 'thumbnail-history/old.jpg',
+                 'short/video.mp4', 'short/assets/scene.png']
+        blobs = []
+        for index, name in enumerate(names, 1):
+            blob = Mock(generation=index)
+            blob.name = 'pipeline/projects/idea-1/revision-002/' + name
+            blobs.append(blob)
+            self.store.known['projects/idea-1/revision-002/' + name] = (1, index)
+        self.bucket.list_blobs.return_value = blobs
+        self.store.discard_output(project, 'long')
+        self.assertTrue(all(blobs[index].delete.called for index in (0, 1)))
+        self.assertTrue(all(not blobs[index].delete.called for index in (2, 3, 4)))
+        self.assertNotIn('projects/idea-1/revision-002/video.mp4', self.store.known)
+        self.assertIn('projects/idea-1/revision-002/short/video.mp4', self.store.known)
+
     def test_cleanup_only_old_completed_uploaded_items(self):
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=8)).isoformat()

@@ -12,6 +12,8 @@ on:
         options:
           - approve
           - regenerate
+          - regenerate_long
+          - regenerate_short
           - regenerate_audio
           - regenerate_thumbnail
           - delete
@@ -21,7 +23,7 @@ on:
         required: false
         type: string
       review_comments:
-        description: 'Optional instructions for regenerating the full video or only its thumbnail'
+        description: 'Optional instructions for the selected regeneration action'
         required: false
         type: string
   schedule:

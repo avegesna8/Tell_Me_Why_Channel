@@ -303,6 +303,48 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(state['regeneration_comments'], 'Use a calmer opening and fewer close-ups.')
         self.assertEqual(state['revision'], 2)
 
+    def test_selected_regeneration_removes_only_requested_output(self):
+        from automation.queue_runner import apply_selected_regeneration
+        for kind in ('long', 'short'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                long_files = [project/'video.mp4', project/'script.txt', project/'storyboard.json',
+                              project/'thumbnail.jpg', project/'assets/scene-001.png']
+                short_files = [project/'short/video.mp4', project/'short/script.txt',
+                               project/'short/storyboard.json', project/'short/assets/scene-001.png']
+                for path in long_files + short_files:
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+                state = {'status': 'awaiting_approval', 'review_digest': 'code',
+                         'email_review': 'sent', 'approved_digest': 'code'}
+                cloud = Mock(); save = Mock()
+                with patch.dict('os.environ', {'REVIEW_ACTION': f'regenerate_{kind}',
+                        'APPROVAL_CODE': 'code', 'REVIEW_COMMENTS': f'Improve {kind} pacing.'}):
+                    apply_selected_regeneration(item(), state, project, save, cloud)
+                preserved = short_files if kind == 'long' else long_files
+                removed = long_files if kind == 'long' else short_files
+                self.assertTrue(all(path.exists() for path in preserved))
+                self.assertTrue(all(not path.exists() for path in removed))
+                self.assertEqual(state['selected_regeneration_active'], kind)
+                self.assertEqual(state[f'{kind}_regeneration_comments'], f'Improve {kind} pacing.')
+                self.assertNotIn('review_digest', state)
+                cloud.discard_output.assert_called_once_with(project, kind)
+                save.assert_called_once()
+
+    def test_selected_regeneration_reuses_consumed_code_and_resumes_cleanup(self):
+        from automation.queue_runner import apply_selected_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp); (project/'short').mkdir(); (project/'short/video.mp4').write_bytes(b'partial')
+            state = {'status': 'generating', 'short_regeneration_requests': ['used'],
+                     'short_regeneration_comments': 'Try a stronger hook.',
+                     'selected_regeneration_active': 'short'}
+            cloud = Mock(); save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_short', 'APPROVAL_CODE': 'used',
+                                          'REVIEW_COMMENTS': 'Try a stronger hook.'}):
+                apply_selected_regeneration(item(), state, project, save, cloud)
+            self.assertFalse((project/'short').exists())
+            cloud.discard_output.assert_called_once_with(project, 'short')
+            save.assert_not_called()
+
     def test_audio_regeneration_preserves_visuals_and_removes_only_audio_outputs(self):
         from automation.queue_runner import apply_audio_regeneration
         with tempfile.TemporaryDirectory() as tmp:

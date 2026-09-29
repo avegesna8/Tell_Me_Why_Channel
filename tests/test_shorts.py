@@ -28,6 +28,17 @@ class ShortsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 s.short_script(board(), root, 60)
 
+    def test_empty_regeneration_notes_keep_legacy_resume_signature(self):
+        response = Mock()
+        response.json.return_value = {'status': 'completed', 'output': [{'content': [
+            {'type': 'output_text', 'text': json.dumps({'title': 'Short', 'narration': 'Complete thought.'})}]}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(s.p, 'api_post', return_value=response) as api:
+            root = Path(tmp)
+            first = s.short_script(board(), root, 30)
+            self.assertEqual(s.short_script(board(), root, 30, ''), first)
+            self.assertEqual(json.loads((root/'short-script.json').read_text())['request']['version'], 1)
+            self.assertEqual(api.call_count, 1)
+
     def test_duration_adjustment_never_truncates(self):
         self.assertEqual(s.fit_speed(52, 55), 1)
         self.assertAlmostEqual(s.fit_speed(65, 55), 65 / 55)

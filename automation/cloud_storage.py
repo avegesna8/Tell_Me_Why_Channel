@@ -51,6 +51,21 @@ class CloudStore:
             stat = target.stat()
             self.known[name] = (stat.st_mtime_ns, stat.st_size)
 
+    def discard_output(self, project, kind):
+        """Delete one generated output while preserving the other output in the same package."""
+        if kind not in ('long', 'short'):
+            raise ValueError('Output kind must be long or short.')
+        project = Path(project).resolve()
+        relative = self.relative(project).rstrip('/')
+        prefix = 'pipeline/' + relative + '/'
+        for blob in self.bucket.list_blobs(prefix=prefix):
+            remainder = blob.name[len(prefix):]
+            selected = remainder.startswith('short/') if kind == 'short' else not (
+                remainder.startswith('short/') or remainder.startswith('thumbnail-history/'))
+            if selected:
+                blob.delete(if_generation_match=blob.generation)
+                self.known.pop(relative + '/' + remainder, None)
+
     def discard_project(self, item_id):
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', item_id):
             raise ValueError('Invalid stored queue ID.')
