@@ -577,6 +577,16 @@ class AutomationTests(unittest.TestCase):
         self.assertNotIn('platform_uploads', state)
         self.assertEqual(state['history'][0]['uploads']['long']['id'], 'deleted-youtube-id')
 
+    def test_full_regeneration_recovers_interrupted_generating_status(self):
+        from automation.queue_runner import apply_regeneration
+        state = {'status': 'generating', 'review_digest': 'current-code', 'email_review': 'sent'}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate',
+                                      'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}, clear=True):
+            apply_regeneration(item(), state, Mock())
+        self.assertEqual(state['revision'], 2)
+        self.assertEqual(state['status'], 'generating')
+        self.assertEqual(state['history'][0]['status'], 'generating')
+
     def test_full_regeneration_reports_existing_upload_checkpoints(self):
         from automation.queue_runner import apply_regeneration
         state = {'status': 'awaiting_approval', 'review_digest': 'current-code',

@@ -307,9 +307,6 @@ def apply_regeneration(item, state, save):
         return  # Retried dispatch resumes that version, not another paid generation.
     activity = upload_activity_paths(state)
     uploads_reconciled = os.getenv('EXISTING_UPLOADS_REMOVED') == '1'
-    allowed_statuses = ('ready', 'awaiting_approval') + (
-        ('publishing', 'uploaded', 'done') if uploads_reconciled else ()
-    )
     if activity and not uploads_reconciled:
         raise ValueError(
             'Regenerate found existing platform upload checkpoints: '
@@ -317,8 +314,6 @@ def apply_regeneration(item, state, save):
             + '. Remove those platform copies, then rerun with '
               '"Existing platform uploads have been removed" checked.'
         )
-    if state.get('status') not in allowed_statuses:
-        raise ValueError('Regenerate is available only for a generated package or reconciled platform uploads.')
     if code != state.get('review_digest'):
         raise ValueError('Regeneration code does not match the latest package. Use the code from its newest review email.')
     if state.get('email_review') != 'sent':
