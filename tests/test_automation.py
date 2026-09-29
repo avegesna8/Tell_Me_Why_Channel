@@ -267,6 +267,27 @@ class AutomationTests(unittest.TestCase):
                 process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
             yt.assert_not_called()
 
+    def test_wrong_approval_never_sends_replacement_email(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
+             patch('automation.queue_runner.email_summary') as email, patch('automation.queue_runner.YouTube') as yt, \
+             patch.dict('os.environ', {'APPROVAL_CODE': 'stale', 'REVIEW_ACTION': 'approve'}):
+            states = {'imax-001': {'status': 'ready', 'review_digest': 'current',
+                                   'review_digest_version': 2, 'email_review': 'sent'}}
+            with self.assertRaisesRegex(ValueError, 'No replacement email was sent'):
+                process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
+            email.assert_not_called()
+            yt.assert_not_called()
+
+    def test_current_stable_approval_does_not_send_review_email(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
+             patch('automation.queue_runner.email_summary') as email, \
+             patch.dict('os.environ', {'APPROVAL_CODE': 'current', 'REVIEW_ACTION': 'approve', 'REVIEW_ONLY': '1'}):
+            states = {'imax-001': {'status': 'ready', 'review_digest': 'current',
+                                   'review_digest_version': 2, 'email_review': 'sent'}}
+            process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
+            email.assert_not_called()
+            self.assertEqual(states['imax-001']['approved_digest'], 'current')
+
     def test_changed_package_revokes_approval(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='new'), \
              patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \

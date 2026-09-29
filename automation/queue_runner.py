@@ -687,38 +687,42 @@ def process(item, queue, root, states, save, cloud=None):
         digest = review_digest(item, project)
         approval_code = os.getenv('APPROVAL_CODE', '').strip()
         action = os.getenv('REVIEW_ACTION', 'approve')
+        approval_attempt = action == 'approve' and bool(approval_code)
         legacy_digest_migration = (
-            action == 'approve' and bool(approval_code)
+            approval_attempt
             and state.get('review_digest_version') != REVIEW_DIGEST_VERSION
             and approval_code == state.get('review_digest')
             and state.get('email_review') == 'sent'
             and not uploads_started(state)
         )
-        if legacy_digest_migration:
-            state['review_digest'] = digest
-            state['review_digest_version'] = REVIEW_DIGEST_VERSION
-            state['approved_digest'] = digest
-            save()
-            print('Migrated the emailed approval to the stable publishable-package digest.', flush=True)
-        if state.get('review_digest') != digest:
-            if uploads_started(state):
-                raise ValueError('Reviewed files changed after upload began; reconcile the platform dashboards first.')
-            if state.get('email_review') == 'sending':
-                raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
-            state['review_digest'] = digest
-            state['review_digest_version'] = REVIEW_DIGEST_VERSION
-            state.pop('approved_digest', None); state.pop('email_review', None); save()
-        email_summary(item, project, state, save, 'review')
+        if approval_attempt:
+            # Approval consumes an existing email and must never create a newer one.
+            if legacy_digest_migration:
+                state['review_digest'] = digest
+                state['review_digest_version'] = REVIEW_DIGEST_VERSION
+                state['approved_digest'] = digest
+                save()
+                print('Migrated the emailed approval to the stable publishable-package digest.', flush=True)
+            else:
+                if approval_code != state.get('review_digest') or state.get('email_review') != 'sent':
+                    raise ValueError('Approval does not match the latest email already on record. No replacement email was sent.')
+                if state.get('review_digest_version') != REVIEW_DIGEST_VERSION or state.get('review_digest') != digest:
+                    raise ValueError('Publishable files changed after the review email. Run a review-only workflow to receive one new code; no replacement email was sent by this approval run.')
+                state['approved_digest'] = digest; save()
+        else:
+            if state.get('review_digest') != digest or state.get('review_digest_version') != REVIEW_DIGEST_VERSION:
+                if uploads_started(state):
+                    raise ValueError('Reviewed files changed after upload began; reconcile the platform dashboards first.')
+                if state.get('email_review') == 'sending':
+                    raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
+                state['review_digest'] = digest
+                state['review_digest_version'] = REVIEW_DIGEST_VERSION
+                state.pop('approved_digest', None); state.pop('email_review', None); save()
+            email_summary(item, project, state, save, 'review')
         if os.getenv('REVIEW_ONLY') == '1':
             state['status'] = 'awaiting_approval'; save()
             print('Review-only run complete. All platform uploads are disabled for this run.')
             return
-        approval_code = os.getenv('APPROVAL_CODE', '').strip()
-        if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
-            if not legacy_digest_migration:
-                if approval_code != digest or state.get('email_review') != 'sent':
-                    raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
-                state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
             print('Prepared package; waiting for approval through the emailed workflow instructions. No platform uploads sent.')
