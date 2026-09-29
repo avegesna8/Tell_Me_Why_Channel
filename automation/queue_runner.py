@@ -582,7 +582,7 @@ def process(item, queue, root, states, save, cloud=None):
             state['status'] = 'awaiting_approval'; save()
             print('Review-only run complete. All platform uploads are disabled for this run.')
             return
-        approval_code = os.getenv('APPROVAL_CODE', '').strip().strip()
+        approval_code = os.getenv('APPROVAL_CODE', '').strip()
         if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
             if approval_code != digest or state.get('email_review') != 'sent':
                 raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
