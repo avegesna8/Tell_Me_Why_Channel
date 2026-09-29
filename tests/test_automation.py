@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, call, patch
-from automation.queue_runner import choose_item, validate_queue, process, email_summary, platform_metadata
+from automation.queue_runner import choose_item, validate_queue, process, email_summary, platform_metadata, review_digest
 from automation.youtube import YouTube
 import pipeline as p
 
@@ -226,6 +226,37 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(events, ['upload-long', 'upload-short'])
             self.assertEqual(states['imax-001']['status'], 'done')
             self.assertIn('HTTP 403', states['imax-001']['thumbnail_error'])
+
+    def test_review_digest_ignores_internal_reports_but_tracks_publishable_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg',
+                     'short/covers/facebook.jpg', 'short/covers/instagram.jpg', 'short/covers/tiktok.jpg']
+            for name in files:
+                path = project/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(name.encode())
+            (project/'script-quality.json').write_text('{"approved": false}')
+            first = review_digest(item(), project)
+            (project/'script-quality.json').write_text('{"approved": true}')
+            self.assertEqual(review_digest(item(), project), first)
+            (project/'video.mp4').write_bytes(b'changed-video')
+            self.assertNotEqual(review_digest(item(), project), first)
+
+    def test_legacy_emailed_code_migrates_once_to_stable_digest(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='stable'), \
+             patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \
+             patch('automation.queue_runner.Meta') as meta, \
+             patch.dict('os.environ', {'APPROVAL_CODE': 'legacy', 'REVIEW_ACTION': 'approve'}):
+            root = Path(tmp)
+            states = {'imax-001': {'status': 'uploaded', 'review_digest': 'legacy', 'email_review': 'sent'}}
+            yt.return_value.upload.side_effect = ['long-id', 'short-id']
+            meta.return_value.create_facebook_draft.return_value = 'fb-long'
+            meta.return_value.publish_facebook_reel.return_value = 'fb-short'
+            meta.return_value.publish_instagram_reel.return_value = 'ig-short'
+            process(item(), {'email_mode': 'review'}, root, states, Mock())
+            self.assertEqual(states['imax-001']['review_digest'], 'stable')
+            self.assertEqual(states['imax-001']['review_digest_version'], 2)
+            self.assertEqual(states['imax-001']['approved_digest'], 'stable')
+            self.assertEqual(states['imax-001']['status'], 'done')
 
     def test_wrong_approval_cannot_publish(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \

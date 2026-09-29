@@ -86,12 +86,14 @@ def uploads_started(state):
     return bool(upload_activity_paths(state))
 
 
+REVIEW_DIGEST_VERSION = 2
+
+
 def review_digest(item, project):
+    # Bind approval to files that will actually be published. Internal QA reports
+    # may be rewritten by newer validation code without changing the reviewed media.
     files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg',
-             'short/covers/facebook.jpg', 'short/covers/instagram.jpg', 'short/covers/tiktok.jpg',
-             'script.txt', 'short/script.txt', 'script-quality.json']
-    files += [name for name in ('speech-text.txt', 'speech-preparation.json', 'production-review.json',
-                                     'short/production-review.json') if (project / name).exists()]
+             'short/covers/facebook.jpg', 'short/covers/instagram.jpg', 'short/covers/tiktok.jpg']
     hashes = {}
     for name in files:
         with (project / name).open('rb') as stream:
@@ -683,12 +685,28 @@ def process(item, queue, root, states, save, cloud=None):
         save()
     if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
+        approval_code = os.getenv('APPROVAL_CODE', '').strip()
+        action = os.getenv('REVIEW_ACTION', 'approve')
+        legacy_digest_migration = (
+            action == 'approve' and bool(approval_code)
+            and state.get('review_digest_version') != REVIEW_DIGEST_VERSION
+            and approval_code == state.get('review_digest')
+            and state.get('email_review') == 'sent'
+            and not uploads_started(state)
+        )
+        if legacy_digest_migration:
+            state['review_digest'] = digest
+            state['review_digest_version'] = REVIEW_DIGEST_VERSION
+            state['approved_digest'] = digest
+            save()
+            print('Migrated the emailed approval to the stable publishable-package digest.', flush=True)
         if state.get('review_digest') != digest:
             if uploads_started(state):
                 raise ValueError('Reviewed files changed after upload began; reconcile the platform dashboards first.')
             if state.get('email_review') == 'sending':
                 raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
             state['review_digest'] = digest
+            state['review_digest_version'] = REVIEW_DIGEST_VERSION
             state.pop('approved_digest', None); state.pop('email_review', None); save()
         email_summary(item, project, state, save, 'review')
         if os.getenv('REVIEW_ONLY') == '1':
@@ -697,9 +715,10 @@ def process(item, queue, root, states, save, cloud=None):
             return
         approval_code = os.getenv('APPROVAL_CODE', '').strip()
         if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
-            if approval_code != digest or state.get('email_review') != 'sent':
-                raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
-            state['approved_digest'] = digest; save()
+            if not legacy_digest_migration:
+                if approval_code != digest or state.get('email_review') != 'sent':
+                    raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
+                state['approved_digest'] = digest; save()
         if state.get('approved_digest') != digest:
             state['status'] = 'awaiting_approval'; save()
             print('Prepared package; waiting for approval through the emailed workflow instructions. No platform uploads sent.')
