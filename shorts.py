@@ -127,8 +127,11 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
                       narration_mode='continuous', image_reference=image_reference)
     raw_duration = p.duration(p.audio_asset(directory / 'assets', 'narration'))
     speed = fit_speed(raw_duration, seconds)
+    # Hold the final visual briefly and pad silence after the complete narration so
+    # AAC encoder delay and in-app players cannot clip the last spoken syllable.
     p.render(board, directory, fps=fps, subtitle_mode=subtitle_mode, music=music,
-             music_volume=music_volume, narration_mode='continuous', narration_speed=speed)
+             music_volume=music_volume, narration_mode='continuous', narration_speed=speed,
+             ending_padding=0.5)
     actual = p.duration(directory / 'video.mp4')
     p.save_json(directory / 'short-timing.json', {'target_seconds': seconds, 'raw_audio_seconds': raw_duration,
                                                'narration_speed': speed, 'video_seconds': actual})

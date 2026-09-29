@@ -947,13 +947,17 @@ def continuous_alignment(board, audio, directory, *, transcript_audio=None, time
 
 
 def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music=None, music_volume=0.12,
-           narration_mode="scenes", narration_speed=1.0):
+           narration_mode="scenes", narration_speed=1.0, ending_padding=0.0):
     directory = directory.resolve()
     assets = directory / "assets"
     if not math.isfinite(narration_speed) or not 0.8 <= narration_speed <= 1.25:
         raise ValueError("Narration speed must be between 0.8 and 1.25.")
     if narration_speed != 1 and narration_mode != "continuous":
         raise ValueError("Narration speed adjustment requires continuous narration.")
+    if not math.isfinite(ending_padding) or not 0 <= ending_padding <= 2:
+        raise ValueError("Ending padding must be between 0 and 2 seconds.")
+    if ending_padding and narration_mode != "continuous":
+        raise ValueError("Ending padding requires continuous narration.")
     if height is None:
         height = 1080 if board["aspect_ratio"] == "16:9" else 1920
     if height < 144 or height % 2 or not 1 <= fps <= 60:
@@ -988,7 +992,7 @@ def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music
         alignment = continuous_alignment(board, decoded, directory, transcript_audio=source_audio,
                                          timestamp_scale=1 / narration_speed)
         boundaries = [round(t * fps) for t in alignment["boundaries"]]
-        boundaries[-1] = math.ceil(alignment["boundaries"][-1] * fps)
+        boundaries[-1] = math.ceil(alignment["boundaries"][-1] * fps) + math.ceil(ending_padding * fps)
         if any(b <= a for a, b in zip(boundaries, boundaries[1:])):
             raise ValueError("Aligned scenes are shorter than a video frame.")
     timeline, offset = [], 0.0
@@ -1045,9 +1049,13 @@ def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music
         args += ["-i", "captions.srt"]
     args += ["-map", "0:v"]
     if music:
-        args += ["-filter_complex", f"[{music_index}:a]volume={music_volume}[music];[{audio_index}:a][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]", "-map", "[a]"]
+        voice_filter = f"[{audio_index}:a]apad=pad_dur={ending_padding}[voice];" if ending_padding else ""
+        voice_input = "[voice]" if ending_padding else f"[{audio_index}:a]"
+        args += ["-filter_complex", voice_filter + f"[{music_index}:a]volume={music_volume}[music];{voice_input}[music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]", "-map", "[a]"]
     else:
         args += ["-map", f"{audio_index}:a"]
+        if ending_padding:
+            args += ["-af", f"apad=pad_dur={ending_padding}"]
     if subtitle_mode == "burn":
         args += ["-vf", "subtitles=captions.ass",
                  "-c:v", "libx264", "-crf", "20", "-preset", "veryfast"]

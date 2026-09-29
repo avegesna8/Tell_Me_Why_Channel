@@ -64,6 +64,7 @@ class ShortsTests(unittest.TestCase):
             self.assertEqual(assets.call_args.args[0]['aspect_ratio'], '9:16')
             self.assertEqual(render.call_args.kwargs['narration_mode'], 'continuous')
             self.assertAlmostEqual(render.call_args.kwargs['narration_speed'], 65/55)
+            self.assertEqual(render.call_args.kwargs['ending_padding'], 0.5)
             self.assertFalse((root / 'storyboard.json').exists())
             self.assertTrue((short / 'short-timing.json').exists())
 
