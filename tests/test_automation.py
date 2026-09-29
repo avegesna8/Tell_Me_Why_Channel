@@ -533,6 +533,31 @@ class AutomationTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         apply_thumbnail_regeneration(item(), state, project, Mock())
 
+    def test_regeneration_ignores_manual_tiktok_and_empty_platform_placeholders(self):
+        from automation.queue_runner import apply_regeneration
+        state = {'status': 'awaiting_approval', 'review_digest': 'current-code',
+                 'platform_uploads': {
+                     'tiktok': {'short': {'skipped': True, 'delivery_status': 'manual_upload_required'}},
+                     'facebook': {'long': {}, 'short': {}}, 'instagram': {'short': {}}}}
+        save = Mock()
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate',
+                                      'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}):
+            apply_regeneration(item(), state, save)
+        self.assertEqual(state['revision'], 2)
+        self.assertTrue(state['history'][0]['email_review_reconciled'])
+        self.assertEqual(save.call_count, 2)
+
+    def test_upload_activity_detection_ignores_markers_but_detects_real_starts(self):
+        from automation.queue_runner import uploads_started
+        self.assertFalse(uploads_started({'platform_uploads': {
+            'tiktok': {'short': {'skipped': True, 'delivery_status': 'manual_upload_required'}},
+            'facebook': {'long': {}}, 'instagram': {'short': {}}}}))
+        for field, value in [('started', True), ('id', 'external-id'),
+                             ('container_id', 'container'), ('upload_started', True)]:
+            with self.subTest(field=field):
+                self.assertTrue(uploads_started({'platform_uploads': {
+                    'facebook': {'long': {field: value}}}}))
+
     def test_regeneration_rejects_stale_code_and_uploaded_video(self):
         from automation.queue_runner import apply_regeneration
         with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate', 'APPROVAL_CODE': 'old'}):

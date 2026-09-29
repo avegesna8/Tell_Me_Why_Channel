@@ -54,6 +54,23 @@ def choose_item(queue, state):
                  and state.get(i['id'], {}).get('status') not in ('done', 'discarded')), None)
 
 
+UPLOAD_ACTIVITY_FIELDS = frozenset({
+    'id', 'session', 'started', 'upload_url', 'upload_started', 'uploaded',
+    'finished', 'container_id', 'publishing_started', 'publish_id',
+})
+
+
+def uploads_started(state):
+    """Return true only after a real external platform operation has begun."""
+    def active(value):
+        if not isinstance(value, dict):
+            return False
+        if any(value.get(key) not in (None, False, '') for key in UPLOAD_ACTIVITY_FIELDS):
+            return True
+        return any(active(child) for key, child in value.items() if key not in UPLOAD_ACTIVITY_FIELDS)
+    return active(state.get('uploads', {})) or active(state.get('platform_uploads', {}))
+
+
 def review_digest(item, project):
     files = ['video.mp4', 'short/video.mp4', 'metadata.json', 'thumbnail.jpg',
              'short/covers/facebook.jpg', 'short/covers/instagram.jpg', 'short/covers/tiktok.jpg',
@@ -245,8 +262,7 @@ def apply_deletion(item, state, root, save, cloud=None):
         raise ValueError('Deletion requires the code from its review email.')
     if state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Delete is available only for a generated package awaiting review.')
-    if (any(upload.get('id') or upload.get('session') or upload.get('started')
-            for upload in state.get('uploads', {}).values()) or state.get('platform_uploads')):
+    if uploads_started(state):
         raise ValueError('Delete cannot remove a package after any platform upload began; reconcile the platform dashboards.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Deletion code is stale or has not been emailed.')
@@ -274,10 +290,15 @@ def apply_regeneration(item, state, save):
         if comments != state.get('regeneration_comments', ''):
             raise ValueError('That approval code was already used with different regeneration comments. Use the latest review email code.')
         return  # Retried dispatch resumes that version, not another paid generation.
-    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Regenerate is available before uploading. Reconcile existing platform uploads first.')
-    if code != state.get('review_digest') or state.get('email_review') != 'sent':
-        raise ValueError('Regeneration code is stale or has not been emailed.')
+    if code != state.get('review_digest'):
+        raise ValueError('Regeneration code does not match the latest package. Use the code from its newest review email.')
+    if state.get('email_review') != 'sent':
+        state['email_review'] = 'sent'
+        state['email_review_reconciled'] = True
+        save()
+        print('Reconciled the received review email with its current approval code.', flush=True)
     history = state.get('history', []) + [{k: v for k, v in state.items() if k != 'history'}]
     revision = state.get('revision', 1) + 1
     requests = state.get('regeneration_requests', []) + [code]
@@ -325,7 +346,7 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
                 # Legacy active requests already ran cleanup before recording this checkpoint.
                 state[cleanup_key] = True; save()
         return
-    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} regeneration is available only before any platform upload begins.')
     if code != state.get('review_digest'):
         raise ValueError(f'{kind.title()} regeneration code does not match the latest package. Use the code from its newest review email.')
@@ -391,7 +412,7 @@ def apply_audio_regeneration(item, state, project, save):
         if comments != state.get('audio_regeneration_comments', ''):
             raise ValueError('That approval code already regenerated audio with different comments. Use the latest review email code.')
         return
-    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Audio regeneration is available only before any platform upload begins.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Audio regeneration code is stale or has not been emailed.')
@@ -434,7 +455,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
             if not state.get(cleanup_key):
                 state[cleanup_key] = True; save()
         return
-    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} audio regeneration is available only before any platform upload begins.')
     if code != state.get('review_digest'):
         raise ValueError(f'{kind.title()} audio regeneration code does not match the latest package. Use the code from its newest review email.')
@@ -476,7 +497,7 @@ def apply_thumbnail_regeneration(item, state, project, save):
         if comments != state.get('thumbnail_comments', ''):
             raise ValueError('That approval code already generated a thumbnail with different comments. Use the latest review email code.')
         return
-    if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
+    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError('Thumbnail regeneration is available only before any platform upload begins.')
     if code != state.get('review_digest') or state.get('email_review') != 'sent':
         raise ValueError('Thumbnail regeneration code is stale or has not been emailed.')
@@ -584,7 +605,7 @@ def process(item, queue, root, states, save, cloud=None):
     if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
         if state.get('review_digest') != digest:
-            if state.get('uploads'):
+            if uploads_started(state):
                 raise ValueError('Reviewed files changed after upload began; reconcile the platform dashboards first.')
             if state.get('email_review') == 'sending':
                 raise RuntimeError('Previous review email delivery is uncertain; reconcile before changing the package.')
