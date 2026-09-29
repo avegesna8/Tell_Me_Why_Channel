@@ -1006,6 +1006,11 @@ def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music
         boundaries[-1] = math.ceil(alignment["boundaries"][-1] * fps) + math.ceil(ending_padding * fps)
         if any(b <= a for a, b in zip(boundaries, boundaries[1:])):
             raise ValueError("Aligned scenes are shorter than a video frame.")
+    animation_manifest = directory / "animation-manifest.json"
+    animated_scene_ids = set()
+    if os.getenv("ENABLE_ANIMATION", "0").strip().lower() in {"1", "true", "yes", "on"} and animation_manifest.exists():
+        animation_record = json.loads(animation_manifest.read_text())
+        animated_scene_ids = set(animation_record.get("animated", []))
     timeline, offset = [], 0.0
     for index, scene in enumerate(board["scenes"]):
         stem = f"scene-{scene['id']:03}"
@@ -1028,14 +1033,22 @@ def render(board, directory, *, height=None, fps=30, subtitle_mode="burn", music
             vf += f",fade=t=in:d={fade},fade=t=out:st={length-fade}:d={fade}"
         clip = clips / f"{stem}.mkv"
         print(f"Rendering scene {scene['id']}: {audio_len:.2f}s narration", flush=True)
-        scene_args = ["-loop", "1", "-framerate", str(fps), "-i", str(assets / f"{stem}.png")]
+        animation = assets / f"{stem}.animation.mp4"
+        use_animation = (scene["id"] in animated_scene_ids and animation.is_file()
+                         and animation.stat().st_size > 0)
+        if use_animation:
+            vf += f",tpad=stop_mode=clone:stop_duration={length},trim=duration={length},setpts=PTS-STARTPTS"
+            scene_args = ["-i", str(animation)]
+        else:
+            scene_args = ["-loop", "1", "-framerate", str(fps), "-i", str(assets / f"{stem}.png")]
         scene_args += ["-map", "0:v", "-an"] if continuous else ["-i", str(wav), "-map", "0:v", "-map", "1:a", "-af", "apad", "-c:a", "pcm_s16le"]
         run_ffmpeg(scene_args + ["-vf", vf,
                     "-t", str(length), "-r", str(fps), "-c:v", "libx264",
                     "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
                     str(clip)])
         timeline.append({"id": scene["id"], "narration": scene["narration"], "start": offset,
-                         "audio_duration": audio_len, "duration": length, "end": offset + length})
+                         "audio_duration": audio_len, "duration": length, "end": offset + length,
+                         "animated": use_animation})
         offset += length
     caption_text = word_captions(alignment["words"]) if continuous else captions(timeline)
     atomic_write(directory / "captions.srt", caption_text.encode())
@@ -1164,6 +1177,8 @@ def main():
                 save_json(board_path, board)
             generate_assets(board, args.out / "assets", args.voice, runpod=runpod, narration_mode=args.narration_mode,
                             image_reference=args.image_reference)
+            from animation import generate_animations
+            generate_animations(board, args.out, 'long')
         if args.command in ("render", "run"):
             render(board, args.out, height=args.height, fps=args.fps, subtitle_mode=args.captions,
                    music=args.music, music_volume=args.music_volume, narration_mode=args.narration_mode,

@@ -198,6 +198,9 @@ def email_summary(item, project, state, save, kind):
     report['soundtracks'] = {kind: json.loads((location/'soundtrack.json').read_text())
                             for kind, location in [('long',project),('short',project/'short')]
                             if (location/'soundtrack.json').exists()}
+    report['animations'] = {kind: json.loads((location/'animation-manifest.json').read_text())
+                           for kind, location in [('long', project), ('short', project/'short')]
+                           if (location/'animation-manifest.json').exists()}
     if (project/'script-quality.json').exists():
         report['script_quality'] = json.loads((project/'script-quality.json').read_text())
     if state.get('thumbnail_error'):

@@ -59,6 +59,12 @@ jobs:
       OPENAI_PLAN_MODEL: ${{ vars.OPENAI_PLAN_MODEL || 'gpt-4.1-mini' }}
       OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL || vars.OPENAI_PLAN_MODEL || 'gpt-4.1-mini' }}
       OPENAI_IMAGE_MODEL: ${{ vars.OPENAI_IMAGE_MODEL || 'gpt-image-2' }}
+      ENABLE_ANIMATION: ${{ vars.ENABLE_ANIMATION || '0' }}
+      RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
+      RUNWAY_ANIMATION_MODEL: ${{ vars.RUNWAY_ANIMATION_MODEL || 'gen4_turbo' }}
+      RUNWAY_ANIMATION_SECONDS: '5'
+      ANIMATION_LONG_SCENES: '3'
+      ANIMATION_SHORT_SCENES: '1'
       SCRIPT_WEB_FACT_CHECK: ${{ vars.SCRIPT_WEB_FACT_CHECK || '0' }}
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_ENDPOINT_ID: ${{ vars.RUNPOD_ENDPOINT_ID }}
@@ -132,6 +138,8 @@ jobs:
             ${{ steps.production.outputs.project }}/short/soundtrack.json
             ${{ steps.production.outputs.project }}/image-quality.json
             ${{ steps.production.outputs.project }}/short/image-quality.json
+            ${{ steps.production.outputs.project }}/animation-manifest.json
+            ${{ steps.production.outputs.project }}/short/animation-manifest.json
             ${{ steps.production.outputs.project }}/narration-quality.json
             ${{ steps.production.outputs.project }}/transcript.json
             ${{ steps.production.outputs.project }}/assets/narration-part-*-quality.json

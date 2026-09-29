@@ -42,6 +42,13 @@ For SiliconFlow, use a model-qualified preset or uploaded `speech:` URI.
 Model names can be overridden in `.env` for your account's model access.
 Planning, image generation, and narration make billable provider requests.
 
+Optional animated scenes are isolated behind `ENABLE_ANIMATION`. Leave it at `0`
+for the original still-image pipeline. To enable the capped Runway trial, add
+`RUNWAYML_API_SECRET`, set `ENABLE_ANIMATION=1`, and retain the defaults of three
+5-second long-form source clips and one 5-second Short source clip. Each scene gets
+at most two paid generation attempts and falls back to its still image. The renderer
+trims clips or holds their final frame to match the complete narration.
+
 ## Generate a video
 
 To create a long video followed by a separate Shorts companion:

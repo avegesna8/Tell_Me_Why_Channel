@@ -169,12 +169,23 @@ class PipelineTests(unittest.TestCase):
                 p.run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=0.73",
                               str(assets / f"scene-{i:03}.{'mp3' if i == 1 else 'wav'}")])
             music = assets / "scene-001.mp3"
+            p.run_ffmpeg(["-f", "lavfi", "-i", "color=c=red:s=180x320:r=15:d=0.4",
+                          str(assets / "scene-001.animation.mp4")])
+            (root / "animation-manifest.json").write_text(json.dumps({
+                "enabled": True, "animated": [1], "fallback": []}))
             for mode in ("burn", "soft", "none"):
-                p.render(board(), root, height=320, fps=15, subtitle_mode=mode, music=music)
+                with patch.dict(p.os.environ, {"ENABLE_ANIMATION": "1"}):
+                    p.render(board(), root, height=320, fps=15, subtitle_mode=mode, music=music)
                 self.assertTrue((root / "video.mp4").is_file())
                 timeline = json.loads((root / "timeline.json").read_text())
                 self.assertAlmostEqual(p.duration(root / "video.mp4"), timeline["duration"], delta=0.12)
                 self.assertEqual(timeline["scenes"][1]["start"], timeline["scenes"][0]["end"])
+                self.assertTrue(timeline["scenes"][0]["animated"])
+                self.assertFalse(timeline["scenes"][1]["animated"])
+            with patch.dict(p.os.environ, {"ENABLE_ANIMATION": "0"}):
+                p.render(board(), root, height=320, fps=15, subtitle_mode="none", music=music)
+            timeline = json.loads((root / "timeline.json").read_text())
+            self.assertFalse(any(scene["animated"] for scene in timeline["scenes"]))
 
 
 if __name__ == "__main__":

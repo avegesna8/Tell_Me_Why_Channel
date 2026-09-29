@@ -126,6 +126,7 @@ Repository Variables:
 Repository Secrets:
 
 - OPENAI_API_KEY, RUNPOD_API_KEY
+- RUNWAYML_API_SECRET is required only when ENABLE_ANIMATION is `1`.
 
 Optional repository variables for script review:
 
@@ -133,6 +134,8 @@ Optional repository variables for script review:
 - OPENAI_REVIEW_MODEL: single-pass reviewer; defaults to the planning model.
 - OPENAI_IMAGE_MODEL: scene and thumbnail model; defaults to `gpt-image-2`.
 - SCRIPT_WEB_FACT_CHECK: keep `0` for the low-cost default; set `1` to allow web search in that same review call.
+- ENABLE_ANIMATION: `0` keeps the existing still-image renderer; `1` enables optional Runway clips.
+- RUNWAY_ANIMATION_MODEL: defaults to `gen4_turbo`.
 - SMTP_USERNAME, SMTP_PASSWORD (an app password if supported by your provider)
 - YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
 

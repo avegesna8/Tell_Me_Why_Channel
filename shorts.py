@@ -125,6 +125,8 @@ def create_short(source, parent, *, seconds=55, voice='', runpod=None, image_ref
         p.save_json(path, board)
     p.generate_assets(board, directory / 'assets', voice, runpod=runpod,
                       narration_mode='continuous', image_reference=image_reference)
+    from animation import generate_animations
+    generate_animations(board, directory, 'short')
     raw_duration = p.duration(p.audio_asset(directory / 'assets', 'narration'))
     speed = fit_speed(raw_duration, seconds)
     # Hold the final visual briefly and pad silence after the complete narration so
