@@ -734,7 +734,17 @@ def process(item, queue, root, states, save, cloud=None):
                 print('Migrated the emailed approval to the stable publishable-package digest.', flush=True)
             else:
                 if approval_code != state.get('review_digest') or state.get('email_review') != 'sent':
-                    raise ValueError('Approval does not match the latest email already on record. No replacement email was sent.')
+                    submitted = approval_code[:12] or 'empty'
+                    recorded = str(state.get('review_digest') or 'missing')[:12]
+                    current = digest[:12]
+                    delivery = state.get('email_review') or 'missing'
+                    raise ValueError(
+                        'Approval mismatch: submitted prefix=' + submitted
+                        + ', recorded email prefix=' + recorded
+                        + ', current package prefix=' + current
+                        + ', email marker=' + delivery
+                        + '. No replacement email was sent.'
+                    )
                 if state.get('review_digest_version') != REVIEW_DIGEST_VERSION or state.get('review_digest') != digest:
                     raise ValueError('Publishable files changed after the review email. Run a review-only workflow to receive one new code; no replacement email was sent by this approval run.')
                 state['approved_digest'] = digest; save()

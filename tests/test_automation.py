@@ -308,7 +308,7 @@ class AutomationTests(unittest.TestCase):
              patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \
              patch.dict('os.environ', {'APPROVAL_CODE': 'stale'}):
             states = {'imax-001': {'status': 'ready', 'review_digest': 'current', 'email_review': 'sent'}}
-            with self.assertRaisesRegex(ValueError, 'Approval does not match'):
+            with self.assertRaisesRegex(ValueError, 'Approval mismatch'):
                 process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
             yt.assert_not_called()
 
@@ -318,7 +318,7 @@ class AutomationTests(unittest.TestCase):
              patch.dict('os.environ', {'APPROVAL_CODE': 'stale', 'REVIEW_ACTION': 'approve'}):
             states = {'imax-001': {'status': 'ready', 'review_digest': 'current',
                                    'review_digest_version': 2, 'email_review': 'sent'}}
-            with self.assertRaisesRegex(ValueError, 'No replacement email was sent'):
+            with self.assertRaisesRegex(ValueError, 'submitted prefix=stale, recorded email prefix=current'):
                 process(item(), {'email_mode': 'review'}, Path(tmp), states, Mock())
             email.assert_not_called()
             yt.assert_not_called()
