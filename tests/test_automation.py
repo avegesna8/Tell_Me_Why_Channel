@@ -323,6 +323,20 @@ class AutomationTests(unittest.TestCase):
             email.assert_not_called()
             yt.assert_not_called()
 
+    def test_matching_code_repairs_lost_email_marker(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
+             patch('automation.queue_runner.email_summary') as email, \
+             patch.dict('os.environ', {'APPROVAL_CODE': 'current', 'REVIEW_ACTION': 'approve', 'REVIEW_ONLY': '1'}):
+            states = {'imax-001': {'status': 'awaiting_approval', 'review_digest': 'current',
+                                   'review_digest_version': 2}}
+            save = Mock()
+            process(item(), {'email_mode': 'review'}, Path(tmp), states, save)
+            self.assertEqual(states['imax-001']['email_review'], 'sent')
+            self.assertTrue(states['imax-001']['email_review_reconciled'])
+            self.assertEqual(states['imax-001']['approved_digest'], 'current')
+            email.assert_not_called()
+            self.assertTrue(save.called)
+
     def test_current_stable_approval_does_not_send_review_email(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
              patch('automation.queue_runner.email_summary') as email, \

@@ -733,7 +733,13 @@ def process(item, queue, root, states, save, cloud=None):
                 save()
                 print('Migrated the emailed approval to the stable publishable-package digest.', flush=True)
             else:
-                if approval_code != state.get('review_digest') or state.get('email_review') != 'sent':
+                codes_match = approval_code == state.get('review_digest') == digest
+                if codes_match and state.get('email_review') != 'sent':
+                    state['email_review'] = 'sent'
+                    state['email_review_reconciled'] = True
+                    save()
+                    print('Reconciled the matching approval code with its lost review-email marker.', flush=True)
+                if not codes_match or state.get('email_review') != 'sent':
                     submitted = approval_code[:12] or 'empty'
                     recorded = str(state.get('review_digest') or 'missing')[:12]
                     current = digest[:12]
