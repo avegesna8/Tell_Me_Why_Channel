@@ -413,6 +413,31 @@ class AutomationTests(unittest.TestCase):
                 self.assertEqual(save.call_count, 2)
                 cloud.discard_audio_output.assert_called_once_with(project, kind)
 
+    def test_selected_audio_regeneration_reconciles_received_email_with_current_code(self):
+        from automation.queue_runner import apply_selected_audio_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'script.txt', project/'storyboard.json', project/'assets/scene-001.png'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+            state = {'status': 'awaiting_approval', 'review_digest': 'current-code'}
+            save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_long_audio',
+                                          'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}):
+                apply_selected_audio_regeneration(item(), state, project, save)
+            self.assertEqual(state['long_audio_regeneration_requests'], ['current-code'])
+            self.assertTrue(state['email_review_reconciled'])
+            self.assertEqual(save.call_count, 3)
+
+    def test_selected_audio_regeneration_does_not_reconcile_stale_code(self):
+        from automation.queue_runner import apply_selected_audio_regeneration
+        state = {'status': 'awaiting_approval', 'review_digest': 'current-code'}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_long_audio',
+                                      'APPROVAL_CODE': 'stale-code', 'REVIEW_COMMENTS': ''}):
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                apply_selected_audio_regeneration(item(), state, Path('/unused'), Mock())
+        self.assertNotIn('email_review', state)
+        self.assertNotIn('email_review_reconciled', state)
+
     def test_selected_audio_retry_resumes_only_its_cleanup(self):
         from automation.queue_runner import apply_selected_audio_regeneration
         with tempfile.TemporaryDirectory() as tmp:

@@ -436,8 +436,15 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
         return
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} audio regeneration is available only before any platform upload begins.')
-    if code != state.get('review_digest') or state.get('email_review') != 'sent':
-        raise ValueError(f'{kind.title()} audio regeneration code is stale or has not been emailed.')
+    if code != state.get('review_digest'):
+        raise ValueError(f'{kind.title()} audio regeneration code does not match the latest package. Use the code from its newest review email.')
+    if state.get('email_review') != 'sent':
+        # The operator explicitly authorized exact-current-code reconciliation
+        # when an email was received but its durable sent marker was lost.
+        state['email_review'] = 'sent'
+        state['email_review_reconciled'] = True
+        save()
+        print(f'Reconciled the received {kind} review email with its current approval code.', flush=True)
     if len(comments) > 2000:
         raise ValueError('Review comments must be 2,000 characters or fewer.')
     required = ([project/'script.txt', project/'storyboard.json', project/'assets'] if kind == 'long' else
