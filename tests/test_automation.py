@@ -330,6 +330,18 @@ class AutomationTests(unittest.TestCase):
                 cloud.discard_output.assert_called_once_with(project, kind)
                 self.assertEqual(save.call_count, 2)
 
+    def test_selected_regeneration_strips_copied_approval_code_whitespace(self):
+        from automation.queue_runner import apply_selected_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'video.mp4', project/'script.txt', project/'storyboard.json', project/'thumbnail.jpg'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+            state = {'status': 'awaiting_approval', 'review_digest': 'new-code', 'email_review': 'sent'}
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_short',
+                                          'APPROVAL_CODE': '  new-code \n', 'REVIEW_COMMENTS': ''}):
+                apply_selected_regeneration(item(), state, project, Mock())
+            self.assertEqual(state['short_regeneration_requests'], ['new-code'])
+
     def test_selected_regeneration_reuses_consumed_code_and_resumes_cleanup(self):
         from automation.queue_runner import apply_selected_regeneration
         with tempfile.TemporaryDirectory() as tmp:

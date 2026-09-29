@@ -240,7 +240,7 @@ def email_summary(item, project, state, save, kind):
 def apply_deletion(item, state, root, save, cloud=None):
     if os.getenv('REVIEW_ACTION', 'approve') != 'delete':
         return False
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     if not code:
         raise ValueError('Deletion requires the code from its review email.')
     if state.get('status') not in ('ready', 'awaiting_approval'):
@@ -266,7 +266,7 @@ def apply_deletion(item, state, root, save, cloud=None):
 def apply_regeneration(item, state, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate':
         return
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     if not code:
         raise ValueError('Regeneration requires the code from its review email.')
     if code in state.get('regeneration_requests', []):
@@ -308,7 +308,7 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
     if action not in ('regenerate_long', 'regenerate_short'):
         return
     kind = action.removeprefix('regenerate_')
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
     request_key = f'{kind}_regeneration_requests'
     comment_key = f'{kind}_regeneration_comments'
@@ -327,8 +327,10 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
         return
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} regeneration is available only before any platform upload begins.')
-    if code != state.get('review_digest') or state.get('email_review') != 'sent':
-        raise ValueError(f'{kind.title()} regeneration code is stale or has not been emailed.')
+    if code != state.get('review_digest'):
+        raise ValueError(f'{kind.title()} regeneration code does not match the latest package. Use the code from its newest review email.')
+    if state.get('email_review') != 'sent':
+        raise ValueError(f'The latest {kind} review email is not recorded as sent; reconcile email delivery before regenerating.')
     if len(comments) > 2000:
         raise ValueError('Review comments must be 2,000 characters or fewer.')
     required = ([project/'short/video.mp4', project/'short/script.txt', project/'short/storyboard.json']
@@ -375,7 +377,7 @@ def clear_audio_outputs(project, scope="both"):
 def apply_audio_regeneration(item, state, project, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_audio':
         return
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     if not code:
         raise ValueError('Audio regeneration requires the code from its review email.')
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
@@ -408,7 +410,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
     if action not in ('regenerate_long_audio', 'regenerate_short_audio'):
         return
     kind = 'long' if action == 'regenerate_long_audio' else 'short'
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
     request_key = f'{kind}_audio_regeneration_requests'
     comment_key = f'{kind}_audio_regeneration_comments'
@@ -453,7 +455,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
 def apply_thumbnail_regeneration(item, state, project, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_thumbnail':
         return
-    code = os.getenv('APPROVAL_CODE', '')
+    code = os.getenv('APPROVAL_CODE', '').strip()
     if not code:
         raise ValueError('Thumbnail regeneration requires the code from its review email.')
     if code in state.get('thumbnail_regeneration_requests', []):
@@ -580,7 +582,7 @@ def process(item, queue, root, states, save, cloud=None):
             state['status'] = 'awaiting_approval'; save()
             print('Review-only run complete. All platform uploads are disabled for this run.')
             return
-        approval_code = os.getenv('APPROVAL_CODE', '')
+        approval_code = os.getenv('APPROVAL_CODE', '').strip().strip()
         if approval_code and os.getenv('REVIEW_ACTION', 'approve') == 'approve':
             if approval_code != digest or state.get('email_review') != 'sent':
                 raise ValueError('Approval does not match the current emailed package. Use the code from its latest review email.')
