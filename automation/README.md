@@ -208,9 +208,9 @@ References:
 
 ## Regenerate from the review email
 
-The emailed workflow offers `review_action: approve`, `restart`, `regenerate`,
+The emailed workflow offers `review_action: approve`, `resend_review`, `restart`, `regenerate`,
 `regenerate_long`, `regenerate_short`, `regenerate_audio`, `regenerate_long_audio`, `regenerate_short_audio`, `regenerate_thumbnail`, or `delete`. Enter the package code
-from the latest review email. Optional `review_comments` document the requested
+from the latest review email. `resend_review` requires no code and resends the current unchanged package/code without regenerating media. Optional `review_comments` document the requested
 change. `restart` is the exception: it requires no code, deletes only the current
 item's generated project and processing state, keeps the queue entry, and starts
 again from its queue definition. It requires confirmation that no previous

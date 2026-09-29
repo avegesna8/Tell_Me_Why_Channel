@@ -221,7 +221,7 @@ def email_summary(item, project, state, save, kind):
     if kind == 'review':
         report['approval'] = {'workflow': approval_url, 'approval_code': state['review_digest'],
                               'revision': state.get('revision', 1), 'audio_revision': state.get('audio_revision', 1),
-                              'actions': ['approve', 'restart', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'],
+                              'actions': ['approve', 'resend_review', 'restart', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'],
                               'comments': 'Optional for any regeneration action'}
     p.save_json(project / 'upload-details.json', report)
     long_video = project/'video.mp4'
@@ -275,6 +275,21 @@ def email_summary(item, project, state, save, kind):
         client.send_message(message)
         state[key] = 'sent'; save()
 
+
+
+def apply_review_resend(state, save):
+    """Explicitly resend the currently valid review package without regenerating it."""
+    if os.getenv('REVIEW_ACTION', 'approve') != 'resend_review':
+        return False
+    if uploads_started(state):
+        raise ValueError('Review email cannot be resent after a platform upload has begun.')
+    if state.get('status') not in ('ready', 'awaiting_approval') or not state.get('review_digest'):
+        raise ValueError('There is no completed review package to resend.')
+    state.pop('email_review', None)
+    state.pop('approved_digest', None)
+    save()
+    print('Resending the current review package and unchanged approval code.', flush=True)
+    return True
 
 def apply_restart(item, state, root, save, cloud=None):
     """Erase one queue item's generated package/state and begin it again from its queue definition."""
@@ -615,6 +630,7 @@ def process(item, queue, root, states, save, cloud=None):
     state['signature'] = signature; save()
     if apply_deletion(item, state, root, save, cloud):
         return
+    apply_review_resend(state, save)
     apply_regeneration(item, state, save)
     project = root / 'projects' / item['id']
     if state.get('revision', 1) > 1:
@@ -856,7 +872,7 @@ def main():
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return
-        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'restart', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'):
+        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'resend_review', 'restart', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'):
             raise ValueError('Unknown review action.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']

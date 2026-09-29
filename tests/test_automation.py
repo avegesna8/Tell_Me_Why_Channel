@@ -258,6 +258,26 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(states['imax-001']['approved_digest'], 'stable')
             self.assertEqual(states['imax-001']['status'], 'done')
 
+    def test_resend_review_clears_only_email_marker(self):
+        from automation.queue_runner import apply_review_resend
+        state = {'status': 'awaiting_approval', 'review_digest': 'current',
+                 'review_digest_version': 2, 'email_review': 'sent', 'signature': 'idea'}
+        save = Mock()
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'resend_review'}, clear=True):
+            self.assertTrue(apply_review_resend(state, save))
+        self.assertEqual(state['review_digest'], 'current')
+        self.assertEqual(state['signature'], 'idea')
+        self.assertNotIn('email_review', state)
+        save.assert_called_once()
+
+    def test_resend_review_rejects_started_uploads(self):
+        from automation.queue_runner import apply_review_resend
+        state = {'status': 'awaiting_approval', 'review_digest': 'current', 'email_review': 'sent',
+                 'uploads': {'long': {'id': 'youtube-id'}}}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'resend_review'}, clear=True), \
+             self.assertRaisesRegex(ValueError, 'after a platform upload'):
+            apply_review_resend(state, Mock())
+
     def test_wrong_approval_cannot_publish(self):
         with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.review_digest', return_value='current'), \
              patch('automation.queue_runner.email_summary'), patch('automation.queue_runner.YouTube') as yt, \
