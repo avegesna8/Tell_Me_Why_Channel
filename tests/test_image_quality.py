@@ -51,6 +51,8 @@ class ImageQualityTests(unittest.TestCase):
         self.assertIn('completely different visual concept', prompt)
         self.assertIn('Do not include signs, posters, books', prompt)
         self.assertIn('Absolutely no letters', prompt)
+        self.assertIn('established recurring narrator', prompt)
+        self.assertIn('Override any earlier instruction not to show the narrator', prompt)
 
     def test_flagged_scene_retries_with_spelling_correction(self):
         failed = {'passed': False, 'detected_text': [{'text': 'WRNG', 'confidence': 91}],
@@ -88,7 +90,7 @@ class ImageQualityTests(unittest.TestCase):
                               side_effect=[RuntimeError('rejected by the safety system'), b'new']) as request:
                 pipeline.check_image_text(image, payload, b'reference', assets, 'scene-001', 'signature')
             self.assertEqual(request.call_count, 2)
-            self.assertIsNone(request.call_args.args[1] if len(request.call_args.args) > 1 else None)
+            self.assertEqual(request.call_args.args[1], b'reference')
             self.assertNotIn('trademarked subject', request.call_args.args[0]['prompt'])
             self.assertTrue((assets / 'scene-001.prompt-text-safety-fallback.txt').exists())
 

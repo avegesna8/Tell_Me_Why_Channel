@@ -482,8 +482,11 @@ def spelling_retry_prompt(prompt, suspicious):
 
 
 def text_safe_fallback_prompt(prompt):
-    return (prompt + "\nTEXT-SAFE FALLBACK: Use a completely different visual concept and composition for "
-            "the same narrated moment. Communicate the idea only through large physical objects, scenery, color, "
+    return (prompt + "\nTEXT-SAFE FALLBACK: Use a completely different visual concept with a simple composition for "
+            "the same narrated moment. Override any earlier instruction not to show the narrator: prominently show "
+            "the established recurring narrator from the character reference thoughtfully examining, pointing toward, "
+            "or reacting to one simple symbolic object. Keep the narrator's face, cap, vest, proportions, line work, and "
+            "color palette consistent with the reference. Communicate the idea through physical objects, scenery, color, "
             "lighting, and expressive poses. Do not include signs, posters, books, papers, packaging, maps, charts, "
             "screens, interfaces, scoreboards, storefronts, uniforms with markings, or any other surface that could "
             "contain writing. Use clean unmarked surfaces and simple geometric or natural forms. Absolutely no letters, "
@@ -498,7 +501,9 @@ def request_image_bytes(payload, reference=None):
     return base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
 
 
-def request_text_qa_image(payload, reference, directory, stem):
+def request_text_qa_image(payload, reference, directory, stem, fallback_reference=None):
+    if fallback_reference is None:
+        fallback_reference = reference
     try:
         return request_image_bytes(payload, reference)
     except RuntimeError as exc:
@@ -508,17 +513,19 @@ def request_text_qa_image(payload, reference, directory, stem):
         orientation = "vertical" if str(size).startswith("1024x1536") else "widescreen"
         fallback = {**payload, "prompt": (
             f"Create a family-safe, nonviolent hand-drawn 2D explainer illustration in a {orientation} composition. "
-            "Show a friendly original stick-figure narrator examining neutral abstract shapes in a clean room. "
-            "Use clear visual hierarchy, clean ink outlines, flat colors, and restrained shading. Do not depict real "
+            "Show the established recurring narrator from the attached character reference thoughtfully examining one "
+            "neutral abstract shape in a clean room. Preserve the narrator's recognizable face, cap, vest, proportions, "
+            "line work, and color palette. Use a simple composition, clear visual hierarchy, clean ink outlines, flat "
+            "colors, and restrained shading. Do not depict real "
             "people, recognizable fictional characters, brands, logos, weapons, injuries, readable text, letters, "
             "numbers, watermarks, or copyrighted imagery. Use only blank, unmarked surfaces. Still image."
         )}
         atomic_write(directory / f"{stem}.prompt-text-safety-fallback.txt", fallback["prompt"].encode())
         print(f"Image safety filter rejected {stem} text correction; generating a neutral text-free visual…", flush=True)
-        return request_image_bytes(fallback)
+        return request_image_bytes(fallback, fallback_reference)
 
 
-def check_image_text(path, payload, reference, directory, stem, signature):
+def check_image_text(path, payload, reference, directory, stem, signature, fallback_reference=None):
     """Allow valid image text; retry misspellings before using a text-safe fallback."""
     from image_quality import cached_scene, inspect
     report_path = directory.parent / "image-quality.json"
@@ -545,7 +552,7 @@ def check_image_text(path, payload, reference, directory, stem, signature):
         print(f"OCR found likely misspellings in {stem} ({words}); regenerating with spelling correction…", flush=True)
         retry = {**payload, "prompt": spelling_retry_prompt(payload["prompt"], first_detected)}
         atomic_write(directory / f"{stem}.prompt-text-retry.txt", retry["prompt"].encode())
-        atomic_write(path, request_text_qa_image(retry, reference, directory, stem))
+        atomic_write(path, request_text_qa_image(retry, reference, directory, stem, fallback_reference))
         scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=2, prompt_signature=signature, first_detected_text=first_detected)
         report.setdefault("scenes", {})[stem] = scene_report
@@ -557,7 +564,7 @@ def check_image_text(path, payload, reference, directory, stem, signature):
         print(f"OCR still found likely misspellings in {stem} ({words}); generating a text-free visual…", flush=True)
         fallback = {**payload, "prompt": text_safe_fallback_prompt(payload["prompt"])}
         atomic_write(directory / f"{stem}.prompt-text-fallback.txt", fallback["prompt"].encode())
-        atomic_write(path, request_text_qa_image(fallback, reference, directory, stem))
+        atomic_write(path, request_text_qa_image(fallback, fallback_reference, directory, stem, fallback_reference))
         scene_report = inspect(path, payload["prompt"])
         scene_report.update(attempt=3, prompt_signature=signature,
                             first_detected_text=first_detected,
@@ -574,8 +581,9 @@ def safe_image_fallback(board):
     orientation = "vertical 9:16" if board["aspect_ratio"] == "9:16" else "widescreen 16:9"
     return (
         "Create a family-safe, nonviolent hand-drawn 2D explainer illustration in a " + orientation + " composition. "
-        "Show a friendly original stick-figure narrator thoughtfully examining neutral abstract shapes, arrows, charts, "
-        "and a large blank display. Use expressive body language, clean ink outlines, flat colors, restrained shading, "
+        "Show the established recurring narrator from the attached character reference in a simple thoughtful pose, "
+        "examining or pointing toward one neutral unmarked object. Preserve the narrator's recognizable face, blue cap, "
+        "red vest, proportions, line work, and color palette. Use expressive body language, clean ink outlines, flat colors, restrained shading, "
         "and a clear center-safe composition. Do not depict real people, recognizable fictional characters, brands, logos, "
         "weapons, crime, injuries, threatening actions, readable text, watermarks, or copyrighted imagery. Still image."
     )
@@ -755,7 +763,8 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
                 if kind == "audio" and runpod and narration_mode == "continuous":
                     check_runpod_narration(path, tts_text, directory, runpod, signature)
                 if kind == "image":
-                    check_image_text(path, payload, reference, directory, stem, signature)
+                    check_image_text(path, payload, reference, directory, stem, signature,
+                                     fallback_reference=reference_bytes)
                 continue
             print(f"Generating {kind} for {stem}…", flush=True)
             if kind == "audio":
@@ -776,8 +785,9 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
                     fallback = {**payload, "prompt": safe_image_fallback(board)}
                     atomic_write(directory / f"{stem}.prompt-safety-fallback.txt", fallback["prompt"].encode())
                     print(f"Image safety filter rejected {stem}; generating a neutral cutaway…", flush=True)
-                    data = request_image_bytes(fallback)
+                    data = request_image_bytes(fallback, reference_bytes)
                     payload = fallback
+                    reference = reference_bytes
             if not data:
                 raise RuntimeError(f"Provider returned empty {kind}.")
             atomic_write(path, data)
@@ -786,7 +796,8 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             if kind == "audio" and runpod and narration_mode == "continuous":
                 check_runpod_narration(path, tts_text, directory, runpod, signature)
             if kind == "image":
-                check_image_text(path, payload, reference, directory, stem, signature)
+                check_image_text(path, payload, reference, directory, stem, signature,
+                                 fallback_reference=reference_bytes)
 
 
 def audio_asset(assets, stem):
