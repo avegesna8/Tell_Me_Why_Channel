@@ -6,7 +6,7 @@ from pathlib import Path
 import pipeline as p
 
 
-def metadata(project):
+def metadata(project, replace_kind=None):
     path = project / 'metadata.json'
     sources = {kind: json.loads((root / 'storyboard.json').read_text())
                for kind, root in [('long', project), ('short', project / 'short')]}
@@ -15,10 +15,16 @@ def metadata(project):
                   if (root/'soundtrack.json').exists()}
     signature = p.fingerprint({'sources':sources,'soundtracks':soundtracks}) if soundtracks else p.fingerprint(sources)
     stamp = project / 'metadata-source.json'
-    if path.exists():
-        if not stamp.exists() or json.loads(stamp.read_text())['signature'] != signature:
-            raise ValueError('Metadata source changed; review the existing metadata before replacing it.')
-        value = json.loads(path.read_text())
+    if replace_kind not in (None, 'long', 'short'):
+        raise ValueError('Metadata replacement kind must be long or short.')
+    existing = json.loads(path.read_text()) if path.exists() else None
+    source_matches = (path.exists() and stamp.exists() and
+                      json.loads(stamp.read_text()).get('signature') == signature)
+    generate = not source_matches
+    if path.exists() and generate and replace_kind is None:
+        raise ValueError('Metadata source changed; review the existing metadata before replacing it.')
+    if not generate:
+        value = existing
     else:
         video_schema = p.object_schema({'title': {'type': 'string'}, 'description': {'type': 'string'},
             'tags': {'type': 'array', 'items': {'type': 'string'}}, 'thumbnail_prompt': {'type': 'string'}})
@@ -73,6 +79,15 @@ def metadata(project):
         if result.get('status') != 'completed' or not parts:
             raise RuntimeError('Metadata generation incomplete or refused.')
         value = json.loads(''.join(parts))
+        if existing is not None and replace_kind == 'short':
+            value['long'] = existing['long']
+            if 'platforms' in existing:
+                value['platforms']['facebook_long'] = existing['platforms']['facebook_long']
+        elif existing is not None and replace_kind == 'long':
+            value['short'] = existing['short']
+            if 'platforms' in existing:
+                for platform in ('facebook_reel', 'tiktok', 'instagram'):
+                    value['platforms'][platform] = existing['platforms'][platform]
     for kind in ('long', 'short'):
         item = value[kind]
         for credit in soundtracks.get(kind, {}).get('credits', []):
@@ -108,7 +123,7 @@ def metadata(project):
                 raise ValueError(f'Invalid {platform} hashtag.')
             if not 1 <= len(post['cover_text'].split()) <= 4 or len(post['cover_text']) > 40:
                 raise ValueError(f'Invalid {platform} cover text.')
-    if not path.exists():
+    if generate:
         p.save_json(stamp, {'signature': signature}); p.save_json(path, value)
     return value
 

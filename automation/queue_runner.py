@@ -314,11 +314,16 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
     comment_key = f'{kind}_regeneration_comments'
     if not code:
         raise ValueError(f'{kind.title()} regeneration requires the code from its review email.')
+    cleanup_key = f'{kind}_regeneration_cleanup_done'
     if code in state.get(request_key, []):
         if comments != state.get(comment_key, ''):
             raise ValueError(f'That approval code already regenerated the {kind} video with different comments. Use the latest review email code.')
         if state.get('selected_regeneration_active') == kind:
-            clear_selected_output(project, kind, cloud)
+            if state.get(cleanup_key) is False:
+                clear_selected_output(project, kind, cloud)
+            if not state.get(cleanup_key):
+                # Legacy active requests already ran cleanup before recording this checkpoint.
+                state[cleanup_key] = True; save()
         return
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} regeneration is available only before any platform upload begins.')
@@ -335,10 +340,12 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
     state[request_key] = state.get(request_key, []) + [code]
     state[comment_key] = comments
     state['selected_regeneration_active'] = kind
+    state[cleanup_key] = False
     state['status'] = 'generating'
     state.pop('approved_digest', None); state.pop('review_digest', None); state.pop('email_review', None)
     save()
     clear_selected_output(project, kind, cloud)
+    state[cleanup_key] = True; save()
 
 
 def clear_audio_outputs(project, scope="both"):
@@ -407,13 +414,17 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
     comment_key = f'{kind}_audio_regeneration_comments'
     if not code:
         raise ValueError(f'{kind.title()} audio regeneration requires the code from its review email.')
+    cleanup_key = f'{kind}_audio_regeneration_cleanup_done'
     if code in state.get(request_key, []):
         if comments != state.get(comment_key, ''):
             raise ValueError(f'That approval code already regenerated {kind} audio with different comments. Use the latest review email code.')
         if state.get('selected_audio_regeneration_active') == kind:
-            if cloud:
-                cloud.discard_audio_output(project, kind)
-            clear_audio_outputs(project, scope=kind)
+            if state.get(cleanup_key) is False:
+                if cloud:
+                    cloud.discard_audio_output(project, kind)
+                clear_audio_outputs(project, scope=kind)
+            if not state.get(cleanup_key):
+                state[cleanup_key] = True; save()
         return
     if state.get('uploads') or state.get('platform_uploads') or state.get('status') not in ('ready', 'awaiting_approval'):
         raise ValueError(f'{kind.title()} audio regeneration is available only before any platform upload begins.')
@@ -428,6 +439,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
     state[request_key] = state.get(request_key, []) + [code]
     state[comment_key] = comments
     state['selected_audio_regeneration_active'] = kind
+    state[cleanup_key] = False
     state['audio_regeneration_active'] = True
     state['status'] = 'generating'
     state.pop('approved_digest', None); state.pop('review_digest', None); state.pop('email_review', None)
@@ -435,6 +447,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
     if cloud:
         cloud.discard_audio_output(project, kind)
     clear_audio_outputs(project, scope=kind)
+    state[cleanup_key] = True; save()
 
 
 def apply_thumbnail_regeneration(item, state, project, save):
@@ -526,12 +539,12 @@ def process(item, queue, root, states, save, cloud=None):
             run_env = {**os.environ, 'REUSE_SOUNDTRACK_PLAN': '1'}
         subprocess.run(command, check=True, env=run_env)
         if selected == 'long':
-            metadata(project)
+            metadata(project, replace_kind='long')
             thumbnail(project, json.loads((project/'metadata.json').read_text())['long'],
                       comments=state.get('long_regeneration_comments', ''))
             social_covers(project, platform_metadata(json.loads((project/'metadata.json').read_text())))
         elif selected == 'short':
-            metadata(project)
+            metadata(project, replace_kind='short')
             social_covers(project, platform_metadata(json.loads((project/'metadata.json').read_text())))
         elif not state.get('audio_regeneration_active'):
             metadata(project)
@@ -540,8 +553,12 @@ def process(item, queue, root, states, save, cloud=None):
             generated = json.loads((project/'metadata.json').read_text())
             social_covers(project, platform_metadata(generated))
         state.pop('audio_regeneration_active', None)
-        state.pop('selected_regeneration_active', None)
-        state.pop('selected_audio_regeneration_active', None)
+        completed_selected = state.pop('selected_regeneration_active', None)
+        completed_audio = state.pop('selected_audio_regeneration_active', None)
+        if completed_selected:
+            state.pop(f'{completed_selected}_regeneration_cleanup_done', None)
+        if completed_audio:
+            state.pop(f'{completed_audio}_audio_regeneration_cleanup_done', None)
         state['status'] = 'ready'; save()
     cover_paths = [project/'short/covers'/f'{name}.jpg' for name in ('facebook', 'instagram', 'tiktok')]
     if (project/'short/assets/scene-001.png').exists() and not all(path.exists() for path in cover_paths):

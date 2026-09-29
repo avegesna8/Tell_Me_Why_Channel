@@ -328,7 +328,7 @@ class AutomationTests(unittest.TestCase):
                 self.assertEqual(state[f'{kind}_regeneration_comments'], f'Improve {kind} pacing.')
                 self.assertNotIn('review_digest', state)
                 cloud.discard_output.assert_called_once_with(project, kind)
-                save.assert_called_once()
+                self.assertEqual(save.call_count, 2)
 
     def test_selected_regeneration_reuses_consumed_code_and_resumes_cleanup(self):
         from automation.queue_runner import apply_selected_regeneration
@@ -341,9 +341,10 @@ class AutomationTests(unittest.TestCase):
             with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_short', 'APPROVAL_CODE': 'used',
                                           'REVIEW_COMMENTS': 'Try a stronger hook.'}):
                 apply_selected_regeneration(item(), state, project, save, cloud)
-            self.assertFalse((project/'short').exists())
-            cloud.discard_output.assert_called_once_with(project, 'short')
-            save.assert_not_called()
+            self.assertTrue((project/'short/video.mp4').exists())
+            cloud.discard_output.assert_not_called()
+            self.assertTrue(state['short_regeneration_cleanup_done'])
+            save.assert_called_once()
 
     def test_selected_audio_regeneration_preserves_other_video_and_all_visuals(self):
         from automation.queue_runner import apply_selected_audio_regeneration
@@ -372,7 +373,7 @@ class AutomationTests(unittest.TestCase):
                 self.assertTrue(state['audio_regeneration_active'])
                 self.assertEqual(state[f'{kind}_audio_regeneration_comments'], f'Fix {kind} delivery.')
                 self.assertNotIn('review_digest', state)
-                save.assert_called_once()
+                self.assertEqual(save.call_count, 2)
                 cloud.discard_audio_output.assert_called_once_with(project, kind)
 
     def test_selected_audio_retry_resumes_only_its_cleanup(self):
@@ -386,9 +387,10 @@ class AutomationTests(unittest.TestCase):
             with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_long_audio',
                                           'APPROVAL_CODE': 'used', 'REVIEW_COMMENTS': ''}):
                 save = Mock(); apply_selected_audio_regeneration(item(), state, project, save)
-            self.assertFalse((project/'video.mp4').exists())
+            self.assertTrue((project/'video.mp4').exists())
             self.assertTrue((project/'short/video.mp4').exists())
-            save.assert_not_called()
+            self.assertTrue(state['long_audio_regeneration_cleanup_done'])
+            save.assert_called_once()
 
     def test_audio_regeneration_preserves_visuals_and_removes_only_audio_outputs(self):
         from automation.queue_runner import apply_audio_regeneration
