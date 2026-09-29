@@ -11,6 +11,7 @@ on:
         type: choice
         options:
           - approve
+          - restart
           - regenerate
           - regenerate_long
           - regenerate_short

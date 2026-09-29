@@ -269,6 +269,24 @@ def email_summary(item, project, state, save, kind):
         state[key] = 'sent'; save()
 
 
+def apply_restart(item, state, root, save, cloud=None):
+    """Erase one queue item's generated package/state and begin it again from its queue definition."""
+    if os.getenv('REVIEW_ACTION', 'approve') != 'restart':
+        return False
+    if os.getenv('EXISTING_UPLOADS_REMOVED') != '1':
+        raise ValueError(
+            'Restart requires confirming that no previous platform copies or drafts remain.'
+        )
+    if cloud:
+        cloud.discard_project(item['id'])
+    else:
+        shutil.rmtree(Path(root) / 'projects' / item['id'], ignore_errors=True)
+    state.clear()
+    save()
+    print(f"Reset {item['id']} generated files and state; starting fresh from the queue item.", flush=True)
+    return True
+
+
 def apply_deletion(item, state, root, save, cloud=None):
     if os.getenv('REVIEW_ACTION', 'approve') != 'delete':
         return False
@@ -549,6 +567,8 @@ def process(item, queue, root, states, save, cloud=None):
     if 'short_seconds' in item:
         signature = p.fingerprint({'base': signature, 'short_seconds': item['short_seconds']})
         legacy_signature = p.fingerprint({'base': legacy_signature, 'short_seconds': item['short_seconds']})
+    if apply_restart(item, state, root, save, cloud):
+        state = states[item['id']]
     saved_signature = state.get('signature')
     empty_notes_migration = not item.get('notes', '').strip() and saved_signature == legacy_signature
     if saved_signature and saved_signature != signature and not empty_notes_migration:
@@ -776,7 +796,7 @@ def main():
         item = choose_item(queue, states)
         if not item:
             print('Queue empty; nothing to do.'); return
-        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'):
+        if os.getenv('REVIEW_ACTION', 'approve') not in ('approve', 'restart', 'regenerate', 'regenerate_long', 'regenerate_short', 'regenerate_audio', 'regenerate_long_audio', 'regenerate_short_audio', 'regenerate_thumbnail', 'delete'):
             raise ValueError('Unknown review action.')
         required = ['OPENAI_API_KEY', 'RUNPOD_API_KEY', 'RUNPOD_ENDPOINT_ID', 'RUNPOD_REFERENCE_AUDIO',
                     'SMTP_HOST', 'SMTP_FROM', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SUMMARY_EMAIL_TO']

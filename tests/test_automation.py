@@ -246,6 +246,41 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(states['imax-001']['status'], 'awaiting_approval')
             yt.assert_not_called()
 
+    def test_restart_deletes_only_current_project_and_clears_state(self):
+        from automation.queue_runner import apply_restart
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / 'projects' / 'imax-001'
+            project.mkdir(parents=True)
+            (project / 'video.mp4').write_bytes(b'old')
+            shared = root / 'shared.txt'
+            shared.write_text('keep')
+            state = {'status': 'generating', 'review_digest': 'old', 'uploads': {'long': {'id': 'old'}}}
+            save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'restart',
+                                          'EXISTING_UPLOADS_REMOVED': '1'}, clear=True):
+                self.assertTrue(apply_restart(item(), state, root, save))
+            self.assertEqual(state, {})
+            self.assertFalse(project.exists())
+            self.assertEqual(shared.read_text(), 'keep')
+            save.assert_called_once()
+
+    def test_restart_cloud_deletes_only_current_project(self):
+        from automation.queue_runner import apply_restart
+        state = {'status': 'generating'}
+        cloud = Mock()
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'restart',
+                                      'EXISTING_UPLOADS_REMOVED': '1'}, clear=True):
+            self.assertTrue(apply_restart(item(), state, Path('/unused'), Mock(), cloud))
+        cloud.discard_project.assert_called_once_with('imax-001')
+        self.assertEqual(state, {})
+
+    def test_restart_requires_platform_cleanup_confirmation(self):
+        from automation.queue_runner import apply_restart
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'restart'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'confirming'):
+                apply_restart(item(), {'status': 'ready'}, Path('/unused'), Mock())
+
     def test_delete_discards_cloud_package_without_uploading(self):
         state = {'status': 'awaiting_approval', 'review_digest': 'v1', 'email_review': 'sent',
                  'revision': 2}
