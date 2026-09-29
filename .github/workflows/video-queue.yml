@@ -28,6 +28,10 @@ on:
         description: 'Optional instructions for the selected regeneration action'
         required: false
         type: string
+      existing_uploads_removed:
+        description: 'Full regenerate only: confirm previous platform copies/drafts were removed'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 13 * * *'
 concurrency:
@@ -46,6 +50,7 @@ jobs:
       REVIEW_ACTION: ${{ inputs.review_action || 'approve' }}
       APPROVAL_CODE: ${{ inputs.approval_code }}
       REVIEW_COMMENTS: ${{ inputs.review_comments }}
+      EXISTING_UPLOADS_REMOVED: ${{ inputs.existing_uploads_removed && '1' || '' }}
       VIDEO_WORK_ROOT: /tmp/tell-me-why-work
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       VIDEO_CLOUD_CHECKPOINTS: '1'

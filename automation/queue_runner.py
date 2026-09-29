@@ -60,15 +60,30 @@ UPLOAD_ACTIVITY_FIELDS = frozenset({
 })
 
 
+def upload_activity_paths(state):
+    """List external upload checkpoints, excluding informational placeholders."""
+    paths = []
+
+    def visit(value, path):
+        if not isinstance(value, dict):
+            return
+        active_fields = sorted(
+            key for key in UPLOAD_ACTIVITY_FIELDS if value.get(key) not in (None, False, '')
+        )
+        if active_fields:
+            paths.append(f"{path} ({', '.join(active_fields)})")
+        for key, child in value.items():
+            if key not in UPLOAD_ACTIVITY_FIELDS:
+                visit(child, f'{path}.{key}')
+
+    visit(state.get('uploads', {}), 'youtube')
+    visit(state.get('platform_uploads', {}), 'platforms')
+    return paths
+
+
 def uploads_started(state):
     """Return true only after a real external platform operation has begun."""
-    def active(value):
-        if not isinstance(value, dict):
-            return False
-        if any(value.get(key) not in (None, False, '') for key in UPLOAD_ACTIVITY_FIELDS):
-            return True
-        return any(active(child) for key, child in value.items() if key not in UPLOAD_ACTIVITY_FIELDS)
-    return active(state.get('uploads', {})) or active(state.get('platform_uploads', {}))
+    return bool(upload_activity_paths(state))
 
 
 def review_digest(item, project):
@@ -290,8 +305,20 @@ def apply_regeneration(item, state, save):
         if comments != state.get('regeneration_comments', ''):
             raise ValueError('That approval code was already used with different regeneration comments. Use the latest review email code.')
         return  # Retried dispatch resumes that version, not another paid generation.
-    if uploads_started(state) or state.get('status') not in ('ready', 'awaiting_approval'):
-        raise ValueError('Regenerate is available before uploading. Reconcile existing platform uploads first.')
+    activity = upload_activity_paths(state)
+    uploads_reconciled = os.getenv('EXISTING_UPLOADS_REMOVED') == '1'
+    allowed_statuses = ('ready', 'awaiting_approval') + (
+        ('publishing', 'uploaded', 'done') if uploads_reconciled else ()
+    )
+    if activity and not uploads_reconciled:
+        raise ValueError(
+            'Regenerate found existing platform upload checkpoints: '
+            + '; '.join(activity)
+            + '. Remove those platform copies, then rerun with '
+              '"Existing platform uploads have been removed" checked.'
+        )
+    if state.get('status') not in allowed_statuses:
+        raise ValueError('Regenerate is available only for a generated package or reconciled platform uploads.')
     if code != state.get('review_digest'):
         raise ValueError('Regeneration code does not match the latest package. Use the code from its newest review email.')
     if state.get('email_review') != 'sent':

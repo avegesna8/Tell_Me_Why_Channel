@@ -548,7 +548,7 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(save.call_count, 2)
 
     def test_upload_activity_detection_ignores_markers_but_detects_real_starts(self):
-        from automation.queue_runner import uploads_started
+        from automation.queue_runner import upload_activity_paths, uploads_started
         self.assertFalse(uploads_started({'platform_uploads': {
             'tiktok': {'short': {'skipped': True, 'delivery_status': 'manual_upload_required'}},
             'facebook': {'long': {}}, 'instagram': {'short': {}}}}))
@@ -557,6 +557,34 @@ class AutomationTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertTrue(uploads_started({'platform_uploads': {
                     'facebook': {'long': {field: value}}}}))
+        self.assertEqual(
+            upload_activity_paths({'uploads': {'long': {'id': 'youtube-id'}}}),
+            ['youtube.long (id)'],
+        )
+
+    def test_full_regeneration_accepts_confirmed_removed_platform_uploads(self):
+        from automation.queue_runner import apply_regeneration
+        state = {'status': 'uploaded', 'review_digest': 'current-code', 'email_review': 'sent',
+                 'uploads': {'long': {'id': 'deleted-youtube-id'}},
+                 'platform_uploads': {'facebook': {'long': {'id': 'deleted-facebook-id'}}}}
+        save = Mock()
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate',
+                                      'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': '',
+                                      'EXISTING_UPLOADS_REMOVED': '1'}):
+            apply_regeneration(item(), state, save)
+        self.assertEqual(state['revision'], 2)
+        self.assertNotIn('uploads', state)
+        self.assertNotIn('platform_uploads', state)
+        self.assertEqual(state['history'][0]['uploads']['long']['id'], 'deleted-youtube-id')
+
+    def test_full_regeneration_reports_existing_upload_checkpoints(self):
+        from automation.queue_runner import apply_regeneration
+        state = {'status': 'awaiting_approval', 'review_digest': 'current-code',
+                 'email_review': 'sent', 'uploads': {'long': {'id': 'youtube-id'}}}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate',
+                                      'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}, clear=True):
+            with self.assertRaisesRegex(ValueError, r'youtube\.long \(id\).*Existing platform uploads'):
+                apply_regeneration(item(), state, Mock())
 
     def test_regeneration_rejects_stale_code_and_uploaded_video(self):
         from automation.queue_runner import apply_regeneration
