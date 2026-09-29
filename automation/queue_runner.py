@@ -14,6 +14,7 @@ import smtplib
 import ssl
 import subprocess
 import sys
+import unicodedata
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -47,6 +48,13 @@ def validate_queue(value):
             raise ValueError('approved/enabled must be booleans.')
     return value
 
+
+
+def normalized_approval_code():
+    """Normalize codes copied from wrapped or Unicode-formatted email text."""
+    raw = os.getenv('APPROVAL_CODE', '')
+    return ''.join(character for character in raw
+                   if not character.isspace() and unicodedata.category(character) != 'Cf')
 
 
 def choose_item(queue, state):
@@ -317,7 +325,7 @@ def apply_restart(item, state, root, save, cloud=None):
 def apply_deletion(item, state, root, save, cloud=None):
     if os.getenv('REVIEW_ACTION', 'approve') != 'delete':
         return False
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     if not code:
         raise ValueError('Deletion requires the code from its review email.')
     if state.get('status') not in ('ready', 'awaiting_approval'):
@@ -342,7 +350,7 @@ def apply_deletion(item, state, root, save, cloud=None):
 def apply_regeneration(item, state, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate':
         return
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     if not code:
         raise ValueError('Regeneration requires the code from its review email.')
     if code in state.get('regeneration_requests', []):
@@ -396,7 +404,7 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
     if action not in ('regenerate_long', 'regenerate_short'):
         return
     kind = action.removeprefix('regenerate_')
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
     request_key = f'{kind}_regeneration_requests'
     comment_key = f'{kind}_regeneration_comments'
@@ -471,7 +479,7 @@ def clear_audio_outputs(project, scope="both"):
 def apply_audio_regeneration(item, state, project, save, cloud=None):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_audio':
         return
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     if not code:
         raise ValueError('Audio regeneration requires the code from its review email.')
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
@@ -522,7 +530,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
     if action not in ('regenerate_long_audio', 'regenerate_short_audio'):
         return
     kind = 'long' if action == 'regenerate_long_audio' else 'short'
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
     request_key = f'{kind}_audio_regeneration_requests'
     comment_key = f'{kind}_audio_regeneration_comments'
@@ -574,7 +582,7 @@ def apply_selected_audio_regeneration(item, state, project, save, cloud=None):
 def apply_thumbnail_regeneration(item, state, project, save):
     if os.getenv('REVIEW_ACTION', 'approve') != 'regenerate_thumbnail':
         return
-    code = os.getenv('APPROVAL_CODE', '').strip()
+    code = normalized_approval_code()
     if not code:
         raise ValueError('Thumbnail regeneration requires the code from its review email.')
     comments = os.getenv('REVIEW_COMMENTS', '').strip()
@@ -706,7 +714,7 @@ def process(item, queue, root, states, save, cloud=None):
         save()
     if queue['email_mode'] == 'review' or state.get('revision', 1) > 1 or os.getenv('REVIEW_ONLY') == '1':
         digest = review_digest(item, project)
-        approval_code = os.getenv('APPROVAL_CODE', '').strip()
+        approval_code = normalized_approval_code()
         action = os.getenv('REVIEW_ACTION', 'approve')
         approval_attempt = action == 'approve' and bool(approval_code)
         legacy_digest_migration = (

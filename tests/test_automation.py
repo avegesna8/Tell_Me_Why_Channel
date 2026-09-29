@@ -20,6 +20,13 @@ def response(status, body=None, headers=None):
 
 
 class AutomationTests(unittest.TestCase):
+    def test_approval_code_normalizes_email_wrapping_and_invisible_formatting(self):
+        from automation.queue_runner import normalized_approval_code
+        expected = '48c754e13e861ae9b676706c60689382144d427e51df41dfc699872a0b35cab2'
+        copied = expected[:20] + '\n  ' + expected[20:42] + '\u200b' + expected[42:]
+        with patch.dict('os.environ', {'APPROVAL_CODE': copied}):
+            self.assertEqual(normalized_approval_code(), expected)
+
     def test_legacy_metadata_gets_platform_specific_fallback(self):
         value = {kind: {'title': 'Why Does It Work?', 'description': 'Explanation',
                         'tags': ['science fact', 'learning']}
