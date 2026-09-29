@@ -206,7 +206,7 @@ References:
 ## Regenerate from the review email
 
 The emailed workflow offers `review_action: approve`, `regenerate`,
-`regenerate_long`, `regenerate_short`, `regenerate_audio`, `regenerate_thumbnail`, or `delete`. Enter the package code
+`regenerate_long`, `regenerate_short`, `regenerate_audio`, `regenerate_long_audio`, `regenerate_short_audio`, `regenerate_thumbnail`, or `delete`. Enter the package code
 from the latest review email. Optional `review_comments` document the requested
 change.
 `regenerate` starts a fresh script, long video, Short, images, thumbnail, and
@@ -214,6 +214,7 @@ metadata for the same idea. New full versions are saved under
 `projects/ITEM_ID/revision-002/`, then `revision-003/`, and so on.
 `regenerate_long` replaces only the long-form script, narration, images, video, thumbnail, and long metadata while preserving the reviewed Short.
 `regenerate_short` replaces only the Short script, narration, vertical images, video, covers, and Short metadata while preserving the reviewed long video and thumbnail.
+`regenerate_long_audio` and `regenerate_short_audio` provide the same audio-only behavior for just the selected format while preserving the other video unchanged.
 `regenerate_audio` reuses the reviewed scripts, storyboards, scene images,
 thumbnail, covers, and metadata. It rebuilds narration, captions, both videos,
 and soundtrack mixes without making new writing, image, thumbnail, or metadata

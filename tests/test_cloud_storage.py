@@ -72,6 +72,21 @@ class CloudStorageTests(unittest.TestCase):
         self.assertNotIn('projects/idea-1/revision-002/video.mp4', self.store.known)
         self.assertIn('projects/idea-1/revision-002/short/video.mp4', self.store.known)
 
+    def test_discard_audio_output_preserves_images_and_other_format(self):
+        project = self.root/'projects'/'idea-1'
+        project.mkdir(parents=True)
+        names = ['video.mp4', 'assets/narration.wav', 'assets/scene.png',
+                 'short/video.mp4', 'short/assets/narration.wav', 'short/assets/scene.png']
+        blobs = []
+        for index, name in enumerate(names, 1):
+            blob = Mock(generation=index); blob.name = 'pipeline/projects/idea-1/' + name
+            blobs.append(blob)
+        self.bucket.list_blobs.return_value = blobs
+        self.store.discard_audio_output(project, 'short')
+        self.assertTrue(blobs[3].delete.called)
+        self.assertTrue(blobs[4].delete.called)
+        self.assertTrue(all(not blobs[index].delete.called for index in (0, 1, 2, 5)))
+
     def test_cleanup_only_old_completed_uploaded_items(self):
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=8)).isoformat()

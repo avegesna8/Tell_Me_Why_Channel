@@ -345,6 +345,51 @@ class AutomationTests(unittest.TestCase):
             cloud.discard_output.assert_called_once_with(project, 'short')
             save.assert_not_called()
 
+    def test_selected_audio_regeneration_preserves_other_video_and_all_visuals(self):
+        from automation.queue_runner import apply_selected_audio_regeneration
+        for kind in ('long', 'short'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                keep = [project/'script.txt', project/'storyboard.json', project/'assets/scene-001.png',
+                        project/'short/script.txt', project/'short/storyboard.json',
+                        project/'short/assets/scene-001.png', project/'thumbnail.jpg']
+                long_audio = [project/'video.mp4', project/'assets/narration.wav', project/'soundtrack.json']
+                short_audio = [project/'short/video.mp4', project/'short/assets/narration.wav',
+                               project/'short/soundtrack.json', project/'short/short-timing.json']
+                for path in keep + long_audio + short_audio:
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'data')
+                state = {'status': 'awaiting_approval', 'review_digest': 'code',
+                         'email_review': 'sent', 'approved_digest': 'code'}
+                save = Mock(); cloud = Mock()
+                with patch.dict('os.environ', {'REVIEW_ACTION': f'regenerate_{kind}_audio',
+                        'APPROVAL_CODE': 'code', 'REVIEW_COMMENTS': f'Fix {kind} delivery.'}):
+                    apply_selected_audio_regeneration(item(), state, project, save, cloud)
+                removed = long_audio if kind == 'long' else short_audio
+                preserved_audio = short_audio if kind == 'long' else long_audio
+                self.assertTrue(all(not path.exists() for path in removed))
+                self.assertTrue(all(path.exists() for path in keep + preserved_audio))
+                self.assertEqual(state['selected_audio_regeneration_active'], kind)
+                self.assertTrue(state['audio_regeneration_active'])
+                self.assertEqual(state[f'{kind}_audio_regeneration_comments'], f'Fix {kind} delivery.')
+                self.assertNotIn('review_digest', state)
+                save.assert_called_once()
+                cloud.discard_audio_output.assert_called_once_with(project, kind)
+
+    def test_selected_audio_retry_resumes_only_its_cleanup(self):
+        from automation.queue_runner import apply_selected_audio_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'video.mp4', project/'short/video.mp4'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'video')
+            state = {'status': 'generating', 'long_audio_regeneration_requests': ['used'],
+                     'long_audio_regeneration_comments': '', 'selected_audio_regeneration_active': 'long'}
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_long_audio',
+                                          'APPROVAL_CODE': 'used', 'REVIEW_COMMENTS': ''}):
+                save = Mock(); apply_selected_audio_regeneration(item(), state, project, save)
+            self.assertFalse((project/'video.mp4').exists())
+            self.assertTrue((project/'short/video.mp4').exists())
+            save.assert_not_called()
+
     def test_audio_regeneration_preserves_visuals_and_removes_only_audio_outputs(self):
         from automation.queue_runner import apply_audio_regeneration
         with tempfile.TemporaryDirectory() as tmp:

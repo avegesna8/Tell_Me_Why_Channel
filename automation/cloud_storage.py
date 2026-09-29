@@ -66,6 +66,31 @@ class CloudStore:
                 blob.delete(if_generation_match=blob.generation)
                 self.known.pop(relative + '/' + remainder, None)
 
+    def discard_audio_output(self, project, kind):
+        """Delete selected audio/render checkpoints while retaining scripts and imagery."""
+        if kind not in ('long', 'short'):
+            raise ValueError('Audio output kind must be long or short.')
+        relative = self.relative(Path(project).resolve()).rstrip('/')
+        prefix = 'pipeline/' + relative + '/'
+        exact_names = {
+            'video.mp4', 'video.partial.mp4', 'video.narration.mp4', 'soundtrack.partial.mp4',
+            'soundtrack-mix.json', 'soundtrack.json', 'captions.srt', 'captions.ass',
+            'narration-quality.json', 'transcript.json', 'short-timing.json',
+        }
+        for blob in self.bucket.list_blobs(prefix=prefix):
+            remainder = blob.name[len(prefix):]
+            path = Path(remainder)
+            in_short = path.parts[0] == 'short'
+            if (kind == 'long' and in_short) or (kind == 'short' and not in_short):
+                continue
+            audio_asset = (path.parent.name == 'assets' and
+                           (path.suffix.lower() in ('.wav', '.mp3') or
+                            path.name.endswith(('.audio.json', '.runpod-job.json')) or
+                            path.name.startswith('narration-quality')))
+            if path.name in exact_names or audio_asset:
+                blob.delete(if_generation_match=blob.generation)
+                self.known.pop(relative + '/' + remainder, None)
+
     def discard_project(self, item_id):
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', item_id):
             raise ValueError('Invalid stored queue ID.')
