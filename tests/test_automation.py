@@ -342,6 +342,31 @@ class AutomationTests(unittest.TestCase):
                 apply_selected_regeneration(item(), state, project, Mock())
             self.assertEqual(state['short_regeneration_requests'], ['new-code'])
 
+    def test_selected_regeneration_reconciles_received_email_with_current_code(self):
+        from automation.queue_runner import apply_selected_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'video.mp4', project/'script.txt', project/'storyboard.json', project/'thumbnail.jpg'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+            state = {'status': 'awaiting_approval', 'review_digest': 'current-code'}
+            save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_short',
+                                          'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}):
+                apply_selected_regeneration(item(), state, project, save)
+            self.assertEqual(state['short_regeneration_requests'], ['current-code'])
+            self.assertTrue(state['email_review_reconciled'])
+            self.assertEqual(save.call_count, 3)
+
+    def test_selected_regeneration_does_not_reconcile_stale_code(self):
+        from automation.queue_runner import apply_selected_regeneration
+        state = {'status': 'awaiting_approval', 'review_digest': 'current-code'}
+        with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_short',
+                                      'APPROVAL_CODE': 'stale-code', 'REVIEW_COMMENTS': ''}):
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                apply_selected_regeneration(item(), state, Path('/unused'), Mock())
+        self.assertNotIn('email_review', state)
+        self.assertNotIn('email_review_reconciled', state)
+
     def test_selected_regeneration_reuses_consumed_code_and_resumes_cleanup(self):
         from automation.queue_runner import apply_selected_regeneration
         with tempfile.TemporaryDirectory() as tmp:

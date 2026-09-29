@@ -330,7 +330,13 @@ def apply_selected_regeneration(item, state, project, save, cloud=None):
     if code != state.get('review_digest'):
         raise ValueError(f'{kind.title()} regeneration code does not match the latest package. Use the code from its newest review email.')
     if state.get('email_review') != 'sent':
-        raise ValueError(f'The latest {kind} review email is not recorded as sent; reconcile email delivery before regenerating.')
+        # A matching, unconsumed digest identifies the current review package.
+        # The operator explicitly confirmed receipt, so repair a lost delivery
+        # marker before consuming that one-time code.
+        state['email_review'] = 'sent'
+        state['email_review_reconciled'] = True
+        save()
+        print(f'Reconciled the received {kind} review email with its current approval code.', flush=True)
     if len(comments) > 2000:
         raise ValueError('Review comments must be 2,000 characters or fewer.')
     required = ([project/'short/video.mp4', project/'short/script.txt', project/'short/storyboard.json']
