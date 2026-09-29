@@ -535,7 +535,8 @@ def process(item, queue, root, states, save, cloud=None):
         if notes:
             command.extend(['--notes', notes])
         run_env = None
-        if state.get('audio_regeneration_active'):
+        if state.get('audio_regeneration_active') or selected:
+            # A fresh selected regeneration has no plan; a resumed one safely retimes its saved plan.
             run_env = {**os.environ, 'REUSE_SOUNDTRACK_PLAN': '1'}
         subprocess.run(command, check=True, env=run_env)
         if selected == 'long':
