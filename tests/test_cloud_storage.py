@@ -129,6 +129,26 @@ class CloudStorageTests(unittest.TestCase):
         lock.delete.assert_not_called()
         self.bucket.list_blobs.assert_not_called()
 
+    def test_actions_run_recovers_lock_from_different_serialized_run(self):
+        from automation.cloud_storage import CloudSession
+        class PreconditionFailed(Exception):
+            code = 412
+        storage = Mock()
+        storage.Client.return_value.bucket.return_value = self.bucket
+        lock = self.bucket.blob.return_value
+        lock.upload_from_string.side_effect = [PreconditionFailed('exists'), None]
+        lock.generation = 456
+        lock.download_as_text.return_value = '{"run_id":"previous-run"}'
+        self.bucket.list_blobs.return_value = []
+        with patch.dict('sys.modules', {'google.cloud': SimpleNamespace(storage=storage)}), \
+             patch.dict('os.environ', {'GCS_BUCKET':'test', 'VIDEO_WORK_ROOT':str(self.root),
+                                       'GITHUB_ACTIONS':'true', 'GITHUB_RUN_ID':'current-run'}):
+            with CloudSession():
+                pass
+        self.assertEqual(lock.upload_from_string.call_count, 2)
+        self.assertEqual(lock.delete.call_count, 2)
+        self.assertEqual(lock.delete.call_args_list[0].kwargs['if_generation_match'], 456)
+
     def test_lock_released_on_processing_error(self):
         from automation.cloud_storage import CloudSession
         storage = Mock()

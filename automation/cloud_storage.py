@@ -10,6 +10,12 @@ import uuid
 _store = None
 
 
+def is_precondition_failed(exc):
+    """Recognize GCS generation conflicts without importing its optional SDK."""
+    code = getattr(exc, 'code', None)
+    return type(exc).__name__ == 'PreconditionFailed' or code == 412 or getattr(code, 'value', None) == 412
+
+
 class CloudStore:
     def __init__(self, bucket, root):
         self.bucket = bucket
@@ -128,10 +134,36 @@ class CloudSession:
         bucket = storage.Client().bucket(os.environ['GCS_BUCKET'])
         self.lock = bucket.blob('locks/queue.json')
         self.token = uuid.uuid4().hex
-        # No automatic lock stealing: interrupted jobs require reconciliation.
-        self.lock.upload_from_string(json.dumps({'token': self.token,
-            'run_id': os.getenv('GITHUB_RUN_ID'), 'created_at': datetime.now(timezone.utc).isoformat()}),
-            content_type='application/json', if_generation_match=0)
+        record = {'token': self.token, 'run_id': os.getenv('GITHUB_RUN_ID'),
+                  'created_at': datetime.now(timezone.utc).isoformat()}
+        try:
+            self.lock.upload_from_string(json.dumps(record), content_type='application/json',
+                                         if_generation_match=0)
+        except Exception as exc:
+            current_run = os.getenv('GITHUB_RUN_ID')
+            if not is_precondition_failed(exc) or os.getenv('GITHUB_ACTIONS') != 'true' or not current_run:
+                raise RuntimeError('Cloud queue lock is already held; confirm its recorded run is finished before retrying.') from exc
+            self.lock.reload()
+            generation = self.lock.generation
+            try:
+                owner = json.loads(self.lock.download_as_text())
+            except (TypeError, ValueError):
+                owner = {}
+            owner_run = str(owner.get('run_id') or '')
+            if not owner_run or owner_run == current_run:
+                raise RuntimeError('Cloud queue lock ownership is ambiguous; inspect locks/queue.json before retrying.') from exc
+            # GitHub serializes the video-production-queue concurrency group. If
+            # this job is running, the different recorded workflow run cannot
+            # still be active, so its create-only lock is an interrupted-run remnant.
+            self.lock.delete(if_generation_match=generation)
+            print(f'Removed stale cloud queue lock from completed workflow run {owner_run}.', flush=True)
+            try:
+                self.lock.upload_from_string(json.dumps(record), content_type='application/json',
+                                             if_generation_match=0)
+            except Exception as retry_exc:
+                if is_precondition_failed(retry_exc):
+                    raise RuntimeError('Another worker acquired the cloud queue lock during recovery; retry later.') from retry_exc
+                raise
         self.generation = self.lock.generation
         try:
             root = Path(os.environ['VIDEO_WORK_ROOT']).resolve()
