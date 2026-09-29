@@ -142,6 +142,23 @@ class AutomationTests(unittest.TestCase):
             process(item(), {'email_mode': 'confirmation'}, Path(tmp), states, Mock())
             self.assertEqual(states['imax-001']['status'], 'done'); yt.assert_not_called()
 
+    def test_review_email_identity_includes_digest_and_resend(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('automation.queue_runner.smtplib.SMTP') as smtp, \
+             patch.dict('os.environ', {'SMTP_FROM': 'from@example.com', 'SUMMARY_EMAIL_TO': 'to@example.com',
+                                       'SMTP_HOST': 'smtp.example.com', 'SMTP_PORT': '587',
+                                       'SMTP_USERNAME': 'user', 'SMTP_PASSWORD': 'pass'}):
+            project = Path(tmp)
+            metadata = {kind: {'title': kind, 'description': 'Description', 'tags': []}
+                        for kind in ('long', 'short')}
+            (project/'metadata.json').write_text(json.dumps(metadata))
+            (project/'video.mp4').write_bytes(b'long')
+            (project/'short').mkdir(); (project/'short/video.mp4').write_bytes(b'short')
+            state = {'review_digest': 'abcdef1234567890', 'review_resend_count': 2}
+            email_summary(item(), project, state, Mock(), 'review')
+            message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+            self.assertIn('code abcdef123456 resend 2', message['Subject'])
+            self.assertIn('.abcdef123456.r2@video-automation.local', message['Message-ID'])
+
     def test_unknown_email_delivery_is_not_retried(self):
         with self.assertRaisesRegex(RuntimeError, 'outcome is unknown'):
             email_summary(item(), Path('/unused'), {'email_review': 'sending'}, Mock(), 'review')
@@ -268,6 +285,7 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(state['review_digest'], 'current')
         self.assertEqual(state['signature'], 'idea')
         self.assertNotIn('email_review', state)
+        self.assertEqual(state['review_resend_count'], 1)
         save.assert_called_once()
 
     def test_resend_review_rejects_started_uploads(self):

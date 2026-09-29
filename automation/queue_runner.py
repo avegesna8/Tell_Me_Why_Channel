@@ -141,9 +141,13 @@ def email_summary(item, project, state, save, kind):
     message['From'] = os.environ['SMTP_FROM']; message['To'] = os.environ['SUMMARY_EMAIL_TO']
     subject_revision = (f" — revision {state.get('revision', 1)}, audio {state.get('audio_revision', 1)}, "
                         f"thumbnail {state.get('thumbnail_revision', 1)}")
-    message['Subject'] = f"Video {kind}: {item['id']}{subject_revision}"
+    digest_label = state.get('review_digest', '')[:12] if kind == 'review' else ''
+    resend = state.get('review_resend_count', 0) if kind == 'review' else 0
+    identity_suffix = (f" — code {digest_label}" + (f" resend {resend}" if resend else '')) if digest_label else ''
+    message['Subject'] = f"Video {kind}: {item['id']}{subject_revision}{identity_suffix}"
     message['Message-ID'] = (f"<{item['id']}.v{state.get('revision', 1)}.a{state.get('audio_revision', 1)}."
-                             f"t{state.get('thumbnail_revision', 1)}.{kind}@video-automation.local>")
+                             f"t{state.get('thumbnail_revision', 1)}.{kind}.{digest_label or 'none'}.r{resend}"
+                             "@video-automation.local>")
     generated_metadata = json.loads((project/'metadata.json').read_text())
     platforms = state.get('platform_uploads', {})
     facebook = platforms.get('facebook', {})
@@ -287,6 +291,7 @@ def apply_review_resend(state, save):
         raise ValueError('There is no completed review package to resend.')
     state.pop('email_review', None)
     state.pop('approved_digest', None)
+    state['review_resend_count'] = state.get('review_resend_count', 0) + 1
     save()
     print('Resending the current review package and unchanged approval code.', flush=True)
     return True
