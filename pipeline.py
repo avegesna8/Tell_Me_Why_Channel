@@ -1155,7 +1155,8 @@ def main():
                             image_reference=args.image_reference)
         if args.command in ("render", "run"):
             render(board, args.out, height=args.height, fps=args.fps, subtitle_mode=args.captions,
-                   music=args.music, music_volume=args.music_volume, narration_mode=args.narration_mode)
+                   music=args.music, music_volume=args.music_volume, narration_mode=args.narration_mode,
+                   ending_padding=0.5 if args.narration_mode == 'continuous' else 0.0)
         if args.command == "short" or args.with_short:
             from shorts import create_short
             create_short(board, args.out, seconds=args.short_seconds, voice=args.voice, runpod=runpod,
