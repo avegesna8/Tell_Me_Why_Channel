@@ -205,10 +205,13 @@ References:
 
 ## Regenerate from the review email
 
-The emailed workflow offers `review_action: approve`, `regenerate`,
+The emailed workflow offers `review_action: approve`, `restart`, `regenerate`,
 `regenerate_long`, `regenerate_short`, `regenerate_audio`, `regenerate_long_audio`, `regenerate_short_audio`, `regenerate_thumbnail`, or `delete`. Enter the package code
 from the latest review email. Optional `review_comments` document the requested
-change.
+change. `restart` is the exception: it requires no code, deletes only the current
+item's generated project and processing state, keeps the queue entry, and starts
+again from its queue definition. It requires confirmation that no previous
+platform copies or drafts remain.
 `regenerate` starts a fresh script, long video, Short, images, thumbnail, and
 metadata for the same idea. New full versions are saved under
 `projects/ITEM_ID/revision-002/`, then `revision-003/`, and so on.
@@ -224,7 +227,8 @@ the thumbnail, and sends a fresh review email and approval code. The prior
 thumbnail remains in the package's private thumbnail history.
 
 All regeneration actions require the latest emailed code and are allowed only before any
-platform upload begins. Each code is consumed at most once, so retrying a failed
+platform upload begins, except a confirmed full regeneration after the operator has
+removed or verified the absence of prior platform copies and drafts. Each code is consumed at most once, so retrying a failed
 workflow resumes instead of starting another paid generation. Email replies are
 not monitored; enter comments in the linked GitHub workflow form.
 

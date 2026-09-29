@@ -58,7 +58,8 @@ class CloudStorageTests(unittest.TestCase):
         project = self.root/'projects'/'idea-1'/'revision-002'
         project.mkdir(parents=True)
         names = ['video.mp4', 'assets/scene.png', 'thumbnail-history/old.jpg',
-                 'short/video.mp4', 'short/assets/scene.png']
+                 'short/video.mp4', 'short/assets/scene.png', 'metadata.json',
+                 'metadata-source.json']
         blobs = []
         for index, name in enumerate(names, 1):
             blob = Mock(generation=index)
@@ -68,9 +69,11 @@ class CloudStorageTests(unittest.TestCase):
         self.bucket.list_blobs.return_value = blobs
         self.store.discard_output(project, 'long')
         self.assertTrue(all(blobs[index].delete.called for index in (0, 1)))
-        self.assertTrue(all(not blobs[index].delete.called for index in (2, 3, 4)))
+        self.assertTrue(all(not blobs[index].delete.called for index in (2, 3, 4, 5, 6)))
         self.assertNotIn('projects/idea-1/revision-002/video.mp4', self.store.known)
         self.assertIn('projects/idea-1/revision-002/short/video.mp4', self.store.known)
+        self.assertIn('projects/idea-1/revision-002/metadata.json', self.store.known)
+        self.assertIn('projects/idea-1/revision-002/metadata-source.json', self.store.known)
 
     def test_discard_audio_output_preserves_images_and_other_format(self):
         project = self.root/'projects'/'idea-1'

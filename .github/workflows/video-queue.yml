@@ -30,7 +30,7 @@ on:
         required: false
         type: string
       existing_uploads_removed:
-        description: 'Full regenerate only: I confirmed no previous platform copies/drafts remain'
+        description: 'Restart/full regenerate: I confirmed no previous platform copies/drafts remain'
         type: boolean
         default: false
   schedule:

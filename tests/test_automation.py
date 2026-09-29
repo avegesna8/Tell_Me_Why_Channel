@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from automation.queue_runner import choose_item, validate_queue, process, email_summary, platform_metadata
 from automation.youtube import YouTube
 import pipeline as p
@@ -347,7 +347,8 @@ class AutomationTests(unittest.TestCase):
                               project/'thumbnail.jpg', project/'assets/scene-001.png']
                 short_files = [project/'short/video.mp4', project/'short/script.txt',
                                project/'short/storyboard.json', project/'short/assets/scene-001.png']
-                for path in long_files + short_files:
+                shared_files = [project/'metadata.json', project/'metadata-source.json']
+                for path in long_files + short_files + shared_files:
                     path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
                 state = {'status': 'awaiting_approval', 'review_digest': 'code',
                          'email_review': 'sent', 'approved_digest': 'code'}
@@ -357,13 +358,39 @@ class AutomationTests(unittest.TestCase):
                     apply_selected_regeneration(item(), state, project, save, cloud)
                 preserved = short_files if kind == 'long' else long_files
                 removed = long_files if kind == 'long' else short_files
-                self.assertTrue(all(path.exists() for path in preserved))
+                self.assertTrue(all(path.exists() for path in preserved + shared_files))
                 self.assertTrue(all(not path.exists() for path in removed))
                 self.assertEqual(state['selected_regeneration_active'], kind)
                 self.assertEqual(state[f'{kind}_regeneration_comments'], f'Improve {kind} pacing.')
                 self.assertNotIn('review_digest', state)
                 cloud.discard_output.assert_called_once_with(project, kind)
                 self.assertEqual(save.call_count, 2)
+
+    def test_long_regeneration_does_not_rewrite_short_covers(self):
+        import automation.queue_runner as runner
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root/'projects'/'imax-001'
+            (project/'short/covers').mkdir(parents=True)
+            for path in (project/'video.mp4', project/'short/video.mp4', project/'metadata.json',
+                         project/'thumbnail.jpg', project/'script.txt', project/'short/script.txt',
+                         project/'script-quality.json'):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'data')
+            (project/'metadata.json').write_text(json.dumps({'long': {'title': 'Long'}}))
+            state = {'status': 'generating', 'signature': p.fingerprint({
+                         k: item().get(k) for k in ('idea', 'notes', 'minutes', 'made_for_kids',
+                                                   'contains_synthetic_media')}),
+                     'long_regeneration_requests': ['used'], 'long_regeneration_comments': '',
+                     'selected_regeneration_active': 'long',
+                     'long_regeneration_cleanup_done': True}
+            states = {'imax-001': state}
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_long',
+                                          'APPROVAL_CODE': 'used', 'REVIEW_COMMENTS': '',
+                                          'REVIEW_ONLY': '1'}, clear=True),                  patch('automation.queue_runner.subprocess.run'),                  patch('automation.queue_runner.metadata'),                  patch('automation.queue_runner.thumbnail'),                  patch('automation.queue_runner.social_covers') as covers,                  patch('automation.queue_runner.review_digest', return_value='new'),                  patch('automation.queue_runner.email_summary'):
+                runner.process(item(), {'email_mode': 'review'}, root, states, Mock())
+            covers.assert_not_called()
+            self.assertEqual(state['status'], 'awaiting_approval')
 
     def test_selected_regeneration_strips_copied_approval_code_whitespace(self):
         from automation.queue_runner import apply_selected_regeneration
@@ -505,9 +532,10 @@ class AutomationTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'remove')
             state = {'status': 'awaiting_approval', 'review_digest': 'code',
                      'email_review': 'sent', 'approved_digest': 'code'}
+            cloud = Mock()
             with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_audio',
                     'APPROVAL_CODE': 'code', 'REVIEW_COMMENTS': 'Fix pacing.'}):
-                apply_audio_regeneration(item(), state, project, Mock())
+                apply_audio_regeneration(item(), state, project, Mock(), cloud)
             self.assertTrue((project/'assets/scene-001.png').exists())
             self.assertTrue((project/'short/assets/scene-001.png').exists())
             self.assertTrue((project/'thumbnail.jpg').exists())
@@ -515,7 +543,48 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(state['audio_revision'], 2)
             self.assertTrue(state['audio_regeneration_active'])
             self.assertEqual(state['status'], 'generating')
+            self.assertTrue(state['audio_regeneration_cleanup_done'])
             self.assertNotIn('review_digest', state)
+            self.assertEqual(
+                cloud.discard_audio_output.call_args_list,
+                [call(project, 'long'), call(project, 'short')],
+            )
+
+    def test_audio_regeneration_retry_resumes_cloud_and_local_cleanup(self):
+        from automation.queue_runner import apply_audio_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project/'video.mp4').write_bytes(b'partial')
+            (project/'short').mkdir()
+            (project/'short/video.mp4').write_bytes(b'partial')
+            state = {'status': 'generating', 'audio_regeneration_requests': ['used'],
+                     'audio_regeneration_comments': '', 'audio_regeneration_active': True,
+                     'audio_regeneration_cleanup_done': False}
+            cloud = Mock(); save = Mock()
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_audio',
+                                          'APPROVAL_CODE': 'used', 'REVIEW_COMMENTS': ''}, clear=True):
+                apply_audio_regeneration(item(), state, project, save, cloud)
+            self.assertFalse((project/'video.mp4').exists())
+            self.assertFalse((project/'short/video.mp4').exists())
+            self.assertTrue(state['audio_regeneration_cleanup_done'])
+            self.assertEqual(
+                cloud.discard_audio_output.call_args_list,
+                [call(project, 'long'), call(project, 'short')],
+            )
+            save.assert_called_once()
+
+    def test_audio_regeneration_reconciles_current_received_email(self):
+        from automation.queue_runner import apply_audio_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for path in (project/'script.txt', project/'storyboard.json', project/'metadata.json',
+                         project/'thumbnail.jpg', project/'short/script.txt', project/'short/storyboard.json'):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'keep')
+            state = {'status': 'awaiting_approval', 'review_digest': 'current'}
+            with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate_audio',
+                                          'APPROVAL_CODE': 'current', 'REVIEW_COMMENTS': ''}, clear=True):
+                apply_audio_regeneration(item(), state, project, Mock())
+            self.assertTrue(state['email_review_reconciled'])
 
     def test_audio_regeneration_rejects_stale_code_or_started_upload(self):
         from automation.queue_runner import apply_audio_regeneration
@@ -545,7 +614,33 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(state['thumbnail_revision'], 2)
             self.assertNotIn('review_digest', state)
             self.assertNotIn('approved_digest', state)
-            self.assertEqual(save.call_count, 1)
+            self.assertEqual(save.call_count, 2)
+
+    def test_thumbnail_regeneration_resumes_after_generator_failure(self):
+        from automation.queue_runner import apply_thumbnail_regeneration
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project/'thumbnail.jpg').write_bytes(b'original')
+            (project/'metadata.json').write_text(json.dumps({'long': {
+                'title': 'Why IMAX?', 'thumbnail_prompt': 'A giant screen'}}))
+            state = {'status': 'awaiting_approval', 'review_digest': 'code', 'email_review': 'sent'}
+            save = Mock()
+            env = {'REVIEW_ACTION': 'regenerate_thumbnail', 'APPROVAL_CODE': 'code',
+                   'REVIEW_COMMENTS': 'Make it clearer.'}
+            with patch.dict('os.environ', env, clear=True), \
+                 patch('automation.queue_runner.thumbnail', side_effect=RuntimeError('temporary')):
+                with self.assertRaisesRegex(RuntimeError, 'temporary'):
+                    apply_thumbnail_regeneration(item(), state, project, save)
+            self.assertTrue(state['thumbnail_regeneration_active'])
+            self.assertEqual((project/'thumbnail-history/thumbnail-code.jpg').read_bytes(), b'original')
+            (project/'thumbnail.jpg').write_bytes(b'partial-new')
+            with patch.dict('os.environ', env, clear=True), \
+                 patch('automation.queue_runner.thumbnail') as generate:
+                apply_thumbnail_regeneration(item(), state, project, save)
+            generate.assert_called_once()
+            self.assertEqual((project/'thumbnail-history/thumbnail-code.jpg').read_bytes(), b'original')
+            self.assertNotIn('thumbnail_regeneration_active', state)
+            self.assertEqual(state['thumbnail_revision'], 2)
 
     def test_consumed_thumbnail_code_rejects_different_comments(self):
         from automation.queue_runner import apply_thumbnail_regeneration
@@ -628,7 +723,7 @@ class AutomationTests(unittest.TestCase):
                  'email_review': 'sent', 'uploads': {'long': {'id': 'youtube-id'}}}
         with patch.dict('os.environ', {'REVIEW_ACTION': 'regenerate',
                                       'APPROVAL_CODE': 'current-code', 'REVIEW_COMMENTS': ''}, clear=True):
-            with self.assertRaisesRegex(ValueError, r'youtube\.long \(id\).*Existing platform uploads'):
+            with self.assertRaisesRegex(ValueError, r'upload checkpoints: youtube\.long \(id\).*confirmed no previous'):
                 apply_regeneration(item(), state, Mock())
 
     def test_regeneration_rejects_stale_code_and_uploaded_video(self):

@@ -67,7 +67,8 @@ class CloudStore:
         for blob in self.bucket.list_blobs(prefix=prefix):
             remainder = blob.name[len(prefix):]
             selected = remainder.startswith('short/') if kind == 'short' else not (
-                remainder.startswith('short/') or remainder.startswith('thumbnail-history/'))
+                remainder.startswith('short/') or remainder.startswith('thumbnail-history/')
+                or remainder in ('metadata.json', 'metadata-source.json'))
             if selected:
                 blob.delete(if_generation_match=blob.generation)
                 self.known.pop(relative + '/' + remainder, None)
