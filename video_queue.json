@@ -1,18 +1,7 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [
-    {
-      "id": "is-imax-worth-it-b4762d53",
-      "idea": "Is IMAX Worth It?",
-      "notes": "Start the video by mentioning how much more expensive imax tickets are and how movie ticket prices have increased a lot over the years so the question is if IMAX is worth the extra cost. Then, dive into what exactly imax is and give examples of movies that look good in imax  which ones are not worth to watch in imax. Explain what imax is andhow it looks different compared to regular screen, And analyze when and if it is worth the extra cost.",
-      "minutes": 6,
-      "short_seconds": 30,
-      "enabled": true,
-      "made_for_kids": false,
-      "contains_synthetic_media": false
-    }
-  ],
+  "items": [],
   "timezone": "America/New_York",
   "notification_email": "tellmewhy.contact25@gmail.com"
 }
