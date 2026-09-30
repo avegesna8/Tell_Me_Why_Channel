@@ -173,8 +173,9 @@ def email_summary(item, project, state, save, kind):
                       'cover_file': 'short/covers/facebook.jpg',
                       'cover_step': 'Select the attached Facebook cover while reviewing the Reel draft.',
                       'metadata': publishing_metadata['facebook_reel']},
-            'manage_url': ('https://www.facebook.com/professional_dashboard/content/'
-                           'content_library/?filter=DRAFT' if facebook else None),
+            'manage_url': ('https://business.facebook.com/latest/posts/draft_posts'
+                           '?asset_id=1289027690968264&business_id=2959470207749615'
+                           if facebook else None),
         },
         'tiktok': {
             'short': {
