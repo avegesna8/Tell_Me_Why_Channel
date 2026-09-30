@@ -1,7 +1,18 @@
 {
   "email_mode": "review",
   "category_id": "27",
-  "items": [],
+  "items": [
+    {
+      "id": "why-do-airplanes-leave-white-trails-in-the-sky-6084dd48",
+      "idea": "Why do Airplanes Leave White Trails in the Sky?",
+      "notes": "Explain why the white trails are left in the sky when airplanes fly in the air.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
+    }
+  ],
   "timezone": "America/New_York",
   "notification_email": "tellmewhy.contact25@gmail.com"
 }
