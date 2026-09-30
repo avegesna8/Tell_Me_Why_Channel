@@ -70,6 +70,18 @@ class RunPodTests(unittest.TestCase):
         self.assertEqual(request.call_args_list[1].args[:2], ("POST", "/run"))
         self.assertEqual(json.loads(self.state.read_text())["id"], "job-1")
 
+    def test_execution_timeout_is_clear_and_failed_state_retries_on_rerun(self):
+        failed = {"id": "job-timeout", "status": "FAILED", "error": "executionTimeout exceeded"}
+        with patch.object(self.client, "request", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "exceeded the endpoint's execution timeout"):
+                self.client.synthesize("Hello", self.state, "sig")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["status"], "FAILED")
+        self.assertEqual(saved["error"], "executionTimeout exceeded")
+        with patch.object(self.client, "request", return_value=self.completed) as request:
+            self.assertEqual(self.client.synthesize("Hello", self.state, "sig"), wav_bytes())
+        self.assertEqual(request.call_args_list[0].args[:2], ("POST", "/run"))
+
     def test_lost_submission_blocks_duplicate(self):
         with patch.object(self.client, "request", side_effect=RuntimeError("Network")):
             with self.assertRaises(RuntimeError):

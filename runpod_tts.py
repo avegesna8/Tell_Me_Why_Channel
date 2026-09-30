@@ -100,6 +100,10 @@ class RunPodTTS:
             if state.get("status") not in ("COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"):
                 raise RuntimeError(f"An older RunPod job may still be active. Check it before removing {state_path} to submit changed narration.")
             state = None
+        if state and state.get("status") in ("FAILED", "CANCELLED", "TIMED_OUT"):
+            reason = state.get("error", "previous terminal failure")
+            print(f"Saved RunPod job ended with {state['status']} ({reason}); submitting a fresh replacement…", flush=True)
+            state = None
         if state:
             job_id = state.get("id")
             if not job_id:
@@ -143,7 +147,26 @@ class RunPodTTS:
                     raise RuntimeError("RunPod returned invalid or empty WAV audio.") from exc
                 return data
             if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
-                raise RuntimeError(f"RunPod job {job_id} {status}. Check worker logs; remove {state_path} after resolving the cause to submit again.")
+                raw_error = result.get("error") or result.get("message") or "worker did not provide a reason"
+                error = " ".join(str(raw_error).split())[:500]
+                save(state_path, {"signature": signature, "endpoint": self.endpoint, "id": job_id,
+                                  "status": status, "error": error})
+                normalized = error.lower().replace("_", " ").replace("-", " ")
+                if any(marker in normalized for marker in (
+                        "insufficient funds", "insufficient balance", "insufficient credits",
+                        "credit balance", "credits exhausted", "payment required",
+                        "billing limit", "spend limit", "quota exceeded")):
+                    raise RuntimeError(
+                        "RunPod has insufficient funds or available credits. Add funds and check the "
+                        "account spending limit in the RunPod Billing page before rerunning."
+                    )
+                if "executiontimeout exceeded" in normalized or "execution timeout exceeded" in normalized:
+                    raise RuntimeError(
+                        f"RunPod job {job_id} exceeded the endpoint's execution timeout. "
+                        "Rerun to submit one fresh replacement; if it repeats, increase the endpoint "
+                        "execution timeout in RunPod or investigate the worker logs."
+                    )
+                raise RuntimeError(f"RunPod job {job_id} {status}: {error}. Check the worker logs, then rerun for a fresh replacement.")
             if status not in ("IN_QUEUE", "IN_PROGRESS"):
                 raise RuntimeError(f"Unexpected RunPod job status: {status}")
             if time.monotonic() - started >= self.wait_seconds:
