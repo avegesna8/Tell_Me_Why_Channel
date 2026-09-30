@@ -89,6 +89,26 @@ class AnimationTests(unittest.TestCase):
             self.assertEqual(session.post.call_count, 2)
             self.assertEqual(session.post.call_args.kwargs["json"]["ratio"], "720:1280")
 
+
+    def test_insufficient_funds_stops_instead_of_falling_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "scene-005.png").write_bytes(b"png")
+            session = Mock()
+            session.post.return_value = response(
+                {"error": "insufficient_credits"}, ok=False, status=402
+            )
+            env = {
+                "ENABLE_ANIMATION": "1",
+                "RUNWAYML_API_SECRET": "secret",
+                "ANIMATION_LONG_SCENES": "1",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "Runway has insufficient funds"):
+                    animation.generate_animations(board(), root, "long", session)
+
     def test_enabled_requires_key_before_spending(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
             "os.environ", {"ENABLE_ANIMATION": "1"}, clear=True

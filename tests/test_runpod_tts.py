@@ -35,6 +35,15 @@ class RunPodTests(unittest.TestCase):
         self.completed = {"id": "job-1", "status": "COMPLETED", "output": {
             "ok": True, "format": "wav", "audio_base64": base64.b64encode(wav_bytes()).decode()}}
 
+
+    def test_insufficient_funds_is_reported_clearly(self):
+        from unittest.mock import Mock
+        response = Mock(ok=False, status_code=402)
+        response.json.return_value = {"error": "insufficient_funds"}
+        with patch.object(__import__("runpod_tts").requests, "request", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "RunPod has insufficient funds"):
+                self.client.request("POST", "/run", {})
+
     def test_queue_to_completed_contract(self):
         with patch.object(self.client, "request", side_effect=[
             {"id": "job-1", "status": "IN_QUEUE"}, {"id": "job-1", "status": "IN_PROGRESS"}, self.completed

@@ -193,7 +193,9 @@ def _api_post_once(base, key_name, endpoint, payload, *, image_reference=None):
                 advice += f" Wait at least {retry_after} seconds (Retry-After)."
             if code in ("rate_limit_exceeded", "rate_limit_error", "slow_down"):
                 raise TemporaryRateLimit(f"{label}: HTTP 429 ({code}). {advice}", retry_after)
-            raise RuntimeError(f"{label}: HTTP 429 ({code}). {advice}")
+            provider = "OpenAI" if base.rstrip("/") == "https://api.openai.com/v1" else label
+            raise RuntimeError(f"{provider} generation stopped: insufficient funds or quota. "
+                               f"HTTP 429 ({code}). {advice}")
         try:
             body = response.json()
             detail = body.get("error", body) if isinstance(body, dict) else {}

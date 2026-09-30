@@ -70,6 +70,22 @@ class RunPodTTS:
         except requests.RequestException as exc:
             raise RuntimeError("RunPod network request failed. Saved job state is preserved; no automatic resubmission.") from exc
         if not response.ok:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            detail = json.dumps(payload, sort_keys=True) if isinstance(payload, (dict, list)) else str(payload)
+            normalized = detail.lower().replace("_", " ").replace("-", " ")
+            funds_markers = (
+                "insufficient funds", "insufficient balance", "insufficient credits",
+                "credit balance", "credits exhausted", "balance exhausted",
+                "payment required", "billing limit", "spend limit", "quota exceeded",
+            )
+            if response.status_code == 402 or any(marker in normalized for marker in funds_markers):
+                raise RuntimeError(
+                    "RunPod has insufficient funds or available credits. Add funds and check the "
+                    "account spending limit in the RunPod Billing page before rerunning."
+                )
             raise RuntimeError(f"RunPod HTTP {response.status_code} on {route}. "
                                "Check endpoint ID, API key, quota and job status in RunPod console.")
         value = response.json()

@@ -15,6 +15,10 @@ TERMINAL_FAILURES = {"FAILED", "CANCELED", "CANCELLED"}
 SUCCESS = "SUCCEEDED"
 
 
+class RunwayInsufficientFundsError(RuntimeError):
+    """A non-retryable Runway billing failure that must not silently fall back."""
+
+
 def enabled():
     return os.getenv("ENABLE_ANIMATION", "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -52,7 +56,19 @@ def _response_json(response, label):
         payload = {}
     if not response.ok:
         code = payload.get("error") or payload.get("message") or f"HTTP {response.status_code}"
-        raise RuntimeError(f"Runway {label} failed: {code}")
+        detail = json.dumps(code, sort_keys=True) if isinstance(code, (dict, list)) else str(code)
+        normalized = detail.lower().replace("_", " ").replace("-", " ")
+        funds_markers = (
+            "insufficient funds", "insufficient balance", "insufficient credits",
+            "credit balance", "credits exhausted", "balance exhausted",
+            "payment required", "billing limit", "spend limit", "quota exceeded",
+        )
+        if response.status_code == 402 or any(marker in normalized for marker in funds_markers):
+            raise RunwayInsufficientFundsError(
+                "Runway has insufficient funds or available credits. Add credits and check the "
+                "workspace spending limit in Runway before rerunning."
+            )
+        raise RuntimeError(f"Runway {label} failed: {detail[:500]}")
     return payload
 
 
@@ -182,6 +198,8 @@ def generate_animations(board, directory, kind, session=None):
             temporary.replace(output)
             _save_json(stamp, {"signature": signature, "file": output.name, "task_output": "downloaded"})
             report["animated"].append(scene_id)
+        except RunwayInsufficientFundsError:
+            raise
         except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
             print(f"Animation fallback for {stem}: {exc}", flush=True)
             report["fallback"].append({"scene": scene_id, "reason": str(exc)[:300]})
