@@ -22,7 +22,7 @@ def save(path, value):
 
 
 class RunPodTTS:
-    def __init__(self, endpoint, reference, *, wait_seconds=900, poll_seconds=5):
+    def __init__(self, endpoint, reference, *, wait_seconds=None, poll_seconds=5):
         endpoint = endpoint.strip()
         match = re.fullmatch(r"https://api\.runpod\.ai/v2/([A-Za-z0-9_-]+)(?:/(?:run|runsync))?/?", endpoint)
         self.endpoint = match.group(1) if match else endpoint
@@ -40,7 +40,10 @@ class RunPodTTS:
         self.reference_hash = hashlib.sha256(raw).hexdigest()
         self.base = f"https://api.runpod.ai/v2/{self.endpoint}"
         self.headers = {"Authorization": f"Bearer {key}"}
-        self.wait_seconds = wait_seconds
+        self.execution_timeout_seconds = int(os.getenv("RUNPOD_EXECUTION_TIMEOUT_SECONDS", "900"))
+        if not 5 <= self.execution_timeout_seconds <= 7 * 24 * 60 * 60:
+            raise ValueError("RUNPOD_EXECUTION_TIMEOUT_SECONDS must be between 5 and 604800 seconds.")
+        self.wait_seconds = (self.execution_timeout_seconds + 60) if wait_seconds is None else wait_seconds
         self.poll_seconds = poll_seconds
         self.model_version = os.getenv("RUNPOD_MODEL_VERSION", "2")
         self.delivery = {}
@@ -120,8 +123,10 @@ class RunPodTTS:
             # Persist intent before POST: a lost response must not silently duplicate a paid job.
             save(state_path, {"signature": signature, "endpoint": self.endpoint, "status": "SUBMITTING"})
             print("Submitting IndexTTS-2 narration to RunPod…", flush=True)
-            result = self.request("POST", "/run", {"input": {
-                "mode": "tts", "text": text, "ref_audio_b64": self.reference_b64, **self.delivery}})
+            result = self.request("POST", "/run", {
+                "input": {"mode": "tts", "text": text, "ref_audio_b64": self.reference_b64, **self.delivery},
+                "policy": {"executionTimeout": self.execution_timeout_seconds * 1000},
+            })
             job_id = result.get("id")
             if not isinstance(job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
                 raise RuntimeError("RunPod returned no valid job ID; inspect Requests before retrying.")

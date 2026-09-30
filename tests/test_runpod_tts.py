@@ -36,6 +36,13 @@ class RunPodTests(unittest.TestCase):
             "ok": True, "format": "wav", "audio_base64": base64.b64encode(wav_bytes()).decode()}}
 
 
+    def test_execution_timeout_configuration_is_validated(self):
+        ref = self.root / "ref.wav"
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test",
+                                     "RUNPOD_EXECUTION_TIMEOUT_SECONDS": "4"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "RUNPOD_EXECUTION_TIMEOUT_SECONDS"):
+                RunPodTTS("endpoint-1", ref)
+
     def test_insufficient_funds_is_reported_clearly(self):
         from unittest.mock import Mock
         response = Mock(ok=False, status_code=402)
@@ -53,6 +60,7 @@ class RunPodTests(unittest.TestCase):
             self.assertEqual(payload["input"]["text"], "Hello")
             self.assertEqual(payload["input"]["mode"], "tts")
             self.assertIn("ref_audio_b64", payload["input"])
+            self.assertEqual(payload["policy"]["executionTimeout"], 900000)
             self.assertEqual(json.loads(self.state.read_text())["id"], "job-1")
 
     def test_resume_does_not_submit(self):
