@@ -21,6 +21,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-is-the-sky-blue-df44929a",
+      "idea": "Why is the Sky Blue?",
+      "notes": "Explain the science for why the sky is blue and why it changes colors during sunset/sunrise.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
