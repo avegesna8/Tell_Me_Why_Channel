@@ -75,6 +75,23 @@ class ScriptQualityTests(unittest.TestCase):
             self.assertTrue(report['approved'])
             self.assertTrue(report['correction_retry'])
 
+    def test_word_count_only_failure_gets_one_extra_targeted_retry(self):
+        near_minimum = ' '.join([f'Point {i} adds useful detail.' for i in range(18)] + ['One final point.'])
+        in_range = ' '.join(f'Point {i} adds useful detail.' for i in range(19))
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', side_effect=[review_response(script=near_minimum),
+                                              review_response(script=near_minimum),
+                                              review_response(script=in_range)]) as post:
+            result = q.review_script(draft, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertEqual(result, in_range.strip())
+            self.assertEqual(post.call_count, 3)
+            length_payload = post.call_args_list[2].args[3]
+            self.assertIn('failed only the mechanical word-count check', length_payload['instructions'])
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertTrue(report['length_retry'])
+
     def test_overlong_sentence_is_split_locally_after_correction(self):
         long_sentence = 'This ' + ' '.join(f'detail{i}' for i in range(105)) + ', and it finishes clearly.'
         draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))

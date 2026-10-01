@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 9
+VERSION = 10
 SCORE_KEYS = ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential')
 
 
@@ -220,6 +220,31 @@ def review_script(script, request, directory):
             no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
             correction_retry = True
             result = retry_result
+    length_retry = False
+    word_count_only = (len(final_findings) == 1
+                       and final_findings[0].startswith('Word count '))
+    if word_count_only and passed_scores and no_high:
+        length_payload = {**payload,
+            'instructions': instructions + (
+                ' The prior corrected narration failed only the mechanical word-count check. Make one final targeted '
+                f'length correction so the complete narration contains {minimum_words}–{maximum_words} words. '
+                'Preserve its facts, structure, natural voice, conclusion, and quality. Return the complete replacement '
+                'narration, not an explanation or a partial patch.'),
+            'input': json.dumps({'brief': request, 'draft_script': final_script,
+                                 'prior_review_feedback': {'deterministic_findings': final_findings}}),
+        }
+        length_result = p.api_post('https://api.openai.com/v1', 'OPENAI_API_KEY', '/responses', length_payload).json()
+        length_review = json.loads(_text(length_result))
+        length_script = length_review.get('final_script', '').strip()
+        if length_script:
+            review = length_review
+            final_script = length_script
+            final_findings = deterministic_findings(final_script, request['minutes'])
+            scores = review.get('scores', {})
+            passed_scores = all(isinstance(scores.get(key), int) and scores[key] >= 7 for key in SCORE_KEYS)
+            no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
+            length_retry = True
+            result = length_result
     local_sentence_repair = False
     if (final_findings == ['Narration contains a sentence longer than 48 words.']
             and passed_scores and no_high):
@@ -240,7 +265,7 @@ def review_script(script, request, directory):
               'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
               'final_deterministic_findings': final_findings, 'correction_retry': correction_retry,
-              'local_sentence_repair': local_sentence_repair,
+              'length_retry': length_retry, 'local_sentence_repair': local_sentence_repair,
               'recovered_stale_length_review': recovered_stale_length,
               'sources': _sources(result)}
     p.save_json(path, report)
