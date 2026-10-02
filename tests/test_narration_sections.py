@@ -25,6 +25,17 @@ class NarrationSectionTests(unittest.TestCase):
         scenes = self.scenes(2, 50)
         self.assertEqual(split_sections(scenes), [" ".join(scene["narration"] for scene in scenes)])
 
+    def test_short_form_policy_splits_long_script_at_sentence_boundary(self):
+        scenes = [
+            {"narration": " ".join([f"Sentence {index}"] + ["detail"] * 13 + ["ends."])}
+            for index in range(1, 7)
+        ]
+        sections = split_sections(scenes, threshold=70, target=45, minimum=25, maximum=55)
+        self.assertGreaterEqual(len(sections), 2)
+        self.assertEqual(" ".join(sections), " ".join(scene["narration"] for scene in scenes))
+        self.assertTrue(all(section.endswith("ends.") for section in sections))
+        self.assertTrue(all(25 <= len(section.split()) <= 55 for section in sections))
+
     def test_one_minute_narration_splits_at_sentence_boundaries(self):
         scenes = self.scenes(11, 16)
         sections = split_sections(scenes)

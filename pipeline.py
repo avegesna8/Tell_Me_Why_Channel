@@ -714,7 +714,12 @@ def generate_assets(board, directory, voice, *, runpod=None, narration_mode="sce
             for report_path in report_paths:
                 if report_path.exists():
                     pronunciations.extend(json.loads(report_path.read_text()).get("pronunciations", []))
-            written_sections = split_sections(scenes)
+            # IndexTTS is less reliable on a single long short-form narration. Keep
+            # each request compact and join it at a sentence boundary; this avoids
+            # losing phrases near the end without changing the reviewed script.
+            section_options = ({"threshold": 70, "target": 45, "minimum": 25, "maximum": 55}
+                               if board["aspect_ratio"] == "9:16" else {})
+            written_sections = split_sections(scenes, **section_options)
             speech_sections, section_reports = [], []
             for written in written_sections:
                 speech, report = prepare_speech_text(written, pronunciations,
