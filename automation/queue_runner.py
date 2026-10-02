@@ -685,6 +685,10 @@ def process(item, queue, root, states, save, cloud=None):
         if state.get('audio_regeneration_active') or selected:
             # A fresh selected regeneration has no plan; a resumed one safely retimes its saved plan.
             run_env = {**os.environ, 'REUSE_SOUNDTRACK_PLAN': '1'}
+            if selected_audio == 'short':
+                # Audio-only regeneration must preserve the reviewed Short script even if the
+                # long-form source, notes, or pacing target now produce a different source signature.
+                run_env['REUSE_EXISTING_SHORT_SCRIPT'] = '1'
         subprocess.run(command, check=True, env=run_env)
         if selected == 'long':
             metadata(project, replace_kind='long')

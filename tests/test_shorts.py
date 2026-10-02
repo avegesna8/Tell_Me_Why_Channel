@@ -28,6 +28,20 @@ class ShortsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 s.short_script(board(), root, 60)
 
+    def test_audio_only_reuse_preserves_reviewed_script_after_source_change(self):
+        response = Mock()
+        response.json.return_value = {'status': 'completed', 'output': [{'content': [
+            {'type': 'output_text', 'text': json.dumps({'title': 'Short', 'narration': 'Reviewed short narration.'})}]}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(s.p, 'api_post', return_value=response) as api:
+            root = Path(tmp)
+            original = s.short_script(board(), root, 30, 'Original notes.')
+            changed = board(); changed['scenes'][0]['narration'] = 'The long source changed.'
+            with patch.dict('os.environ', {'REUSE_EXISTING_SHORT_SCRIPT': '1'}):
+                reused = s.short_script(changed, root, 55, '')
+            self.assertEqual(reused, original)
+            self.assertEqual(reused.read_text().strip(), 'Reviewed short narration.')
+            self.assertEqual(api.call_count, 1)
+
     def test_empty_regeneration_notes_keep_legacy_resume_signature(self):
         response = Mock()
         response.json.return_value = {'status': 'completed', 'output': [{'content': [

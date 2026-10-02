@@ -18,7 +18,8 @@ def short_script(source, directory, seconds, notes=""):
     signature = p.fingerprint(request)
     if record_path.exists():
         record = json.loads(record_path.read_text())
-        if record.get('signature') != signature:
+        reuse_reviewed_script = os.getenv('REUSE_EXISTING_SHORT_SCRIPT', '').lower() in ('1', 'true', 'yes')
+        if record.get('signature') != signature and not reuse_reviewed_script:
             raise ValueError('Short source or target duration changed. Move the existing short folder before creating a new version.')
         if not script_path.exists():
             p.atomic_write(script_path, (record['narration'] + '\n').encode())
