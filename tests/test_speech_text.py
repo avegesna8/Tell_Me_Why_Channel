@@ -45,6 +45,13 @@ class SpokenFormattingTests(unittest.TestCase):
         value, report = prepare_speech_text("GTA 5 became a major release.")
         self.assertIn("<GTA|JH IY1 . T IY1 . EY1> 5", value)
 
+    def test_gym_pronunciation_handles_sentence_case(self):
+        value, report = prepare_speech_text("Gym access makes the gym convenient.")
+        self.assertIn("<Gym|JH IH1 M>", value)
+        self.assertIn("<gym|JH IH1 M>", value)
+        self.assertEqual(report["pronunciations_applied"], [{
+            "text": "gym", "cmu": "JH IH1 M", "occurrences": 2}])
+
     def test_known_tts_mispronunciation_is_annotated_without_changing_visible_script(self):
         value, report = prepare_speech_text("The pricier ticket may be worthwhile.")
         self.assertIn("<pricier|P R AY1 S IY0 ER0>", value)

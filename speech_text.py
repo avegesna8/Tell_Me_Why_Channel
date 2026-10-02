@@ -66,9 +66,10 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True,
         automatic = [
             {"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"},
             {"text": "pricier", "cmu": "P R AY1 S IY0 ER0"},
+            {"text": "gym", "cmu": "JH IH1 M"},
         ]
         automatic = [entry for entry in automatic
-                     if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken)]
+                     if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken, re.I)]
         suggestions = list(pronunciations or [])
         if not apply_suggested_pronunciations:
             ignored.extend({"entry": entry, "reason": "AI-suggested pronunciation retained for review but not sent to TTS"}
@@ -83,7 +84,7 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True,
             seen.add(written.casefold())
             if not written or any(char in written for char in "<>|") or not valid_cmu(cmu):
                 ignored.append({"entry": entry, "reason": "invalid pronunciation annotation"}); continue
-            pattern = re.compile(r"(?<!\w)" + re.escape(written) + r"(?!\w)")
+            pattern = re.compile(r"(?<!\w)" + re.escape(written) + r"(?!\w)", re.I)
             spoken, count = pattern.subn(lambda match: f"<{match.group(0)}|{cmu}>", spoken)
             if count: applied.append({"text": written, "cmu": cmu, "occurrences": count})
             else: ignored.append({"entry": entry, "reason": "term not present after normalization"})
