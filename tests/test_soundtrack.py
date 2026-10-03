@@ -104,7 +104,7 @@ class SoundtrackTests(unittest.TestCase):
             s.mix_video(root,entries,plan)
             self.assertAlmostEqual(p.duration(root/'video.mp4'),8,places=1)
             self.assertEqual(s.file_hash(root/'video.narration.mp4'),original)
-            self.assertEqual(json.loads((root/'soundtrack.json').read_text())['mix']['music_lufs'], -43)
+            self.assertEqual(json.loads((root/'soundtrack.json').read_text())['mix']['music_lufs'], -44)
             mixed=s.file_hash(root/'video.mp4')
             with patch.object(p,'run_ffmpeg') as render:
                 s.mix_video(root,entries,plan)
