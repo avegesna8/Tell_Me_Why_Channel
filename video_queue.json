@@ -41,6 +41,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-do-you-get-a-bruise-30f56806",
+      "idea": "Why do you get a Bruise?",
+      "notes": "Talk about what a bruise is and the different types and the reasons why it appears. Go into depth on a biological level too. And talk about different levels of severity and the recovery progress. Give some tips on how to recover from a bruise faster.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
