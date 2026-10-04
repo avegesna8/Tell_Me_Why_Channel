@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 10
+VERSION = 11
 SCORE_KEYS = ('hook', 'clarity', 'flow', 'accuracy', 'narration_quality', 'visual_potential')
 
 
@@ -221,13 +221,19 @@ def review_script(script, request, directory):
             correction_retry = True
             result = retry_result
     length_retry = False
+    length_retry_attempts = 0
     word_count_only = (len(final_findings) == 1
                        and final_findings[0].startswith('Word count '))
-    if word_count_only and passed_scores and no_high:
+    while word_count_only and passed_scores and no_high and length_retry_attempts < 2:
+        length_retry_attempts += 1
+        current_words = len(final_script.split())
+        adjustment = (f'add at least {minimum_words - current_words} words' if current_words < minimum_words
+                      else f'remove at least {current_words - maximum_words} words')
         length_payload = {**payload,
             'instructions': instructions + (
-                ' The prior corrected narration failed only the mechanical word-count check. Make one final targeted '
+                ' The prior corrected narration failed only the mechanical word-count check. Make a targeted '
                 f'length correction so the complete narration contains {minimum_words}–{maximum_words} words. '
+                f'It currently contains exactly {current_words} words, so {adjustment}. Count carefully before returning it. '
                 'Preserve its facts, structure, natural voice, conclusion, and quality. Return the complete replacement '
                 'narration, not an explanation or a partial patch.'),
             'input': json.dumps({'brief': request, 'draft_script': final_script,
@@ -245,6 +251,8 @@ def review_script(script, request, directory):
             no_high = not any(issue.get('severity') == 'high' for issue in review.get('remaining_issues', []))
             length_retry = True
             result = length_result
+        word_count_only = (len(final_findings) == 1
+                           and final_findings[0].startswith('Word count '))
     local_sentence_repair = False
     if (final_findings == ['Narration contains a sentence longer than 48 words.']
             and passed_scores and no_high):
@@ -265,7 +273,8 @@ def review_script(script, request, directory):
               'version': VERSION, 'request': request, 'model': model,
               'web_fact_check': web_enabled, 'initial_deterministic_findings': initial_findings,
               'final_deterministic_findings': final_findings, 'correction_retry': correction_retry,
-              'length_retry': length_retry, 'local_sentence_repair': local_sentence_repair,
+              'length_retry': length_retry, 'length_retry_attempts': length_retry_attempts,
+              'local_sentence_repair': local_sentence_repair,
               'recovered_stale_length_review': recovered_stale_length,
               'sources': _sources(result)}
     p.save_json(path, report)

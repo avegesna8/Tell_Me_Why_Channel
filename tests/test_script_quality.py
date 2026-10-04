@@ -91,6 +91,27 @@ class ScriptQualityTests(unittest.TestCase):
             report = json.loads((Path(tmp)/'script-quality.json').read_text())
             self.assertTrue(report['approved'])
             self.assertTrue(report['length_retry'])
+            self.assertEqual(report['length_retry_attempts'], 1)
+
+    def test_word_count_repair_retries_when_first_length_edit_is_still_short(self):
+        short = ' '.join(f'Point {i} adds useful detail.' for i in range(18))
+        nearly_long_enough = short + ' Still slightly short.'
+        in_range = ' '.join(f'Point {i} adds useful detail.' for i in range(19))
+        draft = ' '.join(f'Draft point {i} introduces a useful detail.' for i in range(24))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                q.p, 'api_post', side_effect=[review_response(script=short),
+                                              review_response(script=short),
+                                              review_response(script=nearly_long_enough),
+                                              review_response(script=in_range)]) as post:
+            result = q.review_script(draft, {'idea': 'A topic', 'minutes': 1}, Path(tmp))
+            self.assertEqual(result, in_range)
+            self.assertEqual(post.call_count, 4)
+            final_payload = post.call_args_list[3].args[3]
+            self.assertIn('currently contains exactly', final_payload['instructions'])
+            self.assertIn('Count carefully', final_payload['instructions'])
+            report = json.loads((Path(tmp)/'script-quality.json').read_text())
+            self.assertTrue(report['approved'])
+            self.assertEqual(report['length_retry_attempts'], 2)
 
     def test_overlong_sentence_is_split_locally_after_correction(self):
         long_sentence = 'This ' + ' '.join(f'detail{i}' for i in range(105)) + ', and it finishes clearly.'
