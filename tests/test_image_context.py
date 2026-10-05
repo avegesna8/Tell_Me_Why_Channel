@@ -17,6 +17,24 @@ class ImageContextTests(unittest.TestCase):
         self.assertIn("Do not show the narrator", prompt)
         self.assertIn("depict only the target scene", prompt)
 
+    def test_long_form_reserves_conclusion_composition_for_final_scene(self):
+        value = board()
+        value['aspect_ratio'] = '16:9'
+        value['scenes'].append({**value['scenes'][-1], 'id': 3, 'narration': 'The final answer.'})
+        body_prompt = p.image_prompt(value, value['scenes'][1])
+        final_prompt = p.image_prompt(value, value['scenes'][2])
+        self.assertIn('BODY SCENE: This is not the conclusion', body_prompt)
+        self.assertIn('Do not use a wrap-up pose', body_prompt)
+        self.assertNotIn('FINAL CONCLUSION SCENE:', body_prompt)
+        self.assertIn('FINAL CONCLUSION SCENE:', final_prompt)
+        self.assertNotIn('BODY SCENE:', final_prompt)
+
+    def test_body_scene_text_fallback_does_not_become_a_conclusion(self):
+        value = board()
+        value['aspect_ratio'] = '16:9'
+        prompt = p.text_safe_fallback_prompt(p.image_prompt(value, value['scenes'][0]))
+        self.assertIn('do not turn it into a reflective or concluding tableau', prompt)
+
     def test_character_reference_sent_as_multipart(self):
         response = Mock(ok=True)
         with patch.dict(p.os.environ, {"OPENAI_API_KEY": "test"}), patch.object(p.requests, "post", return_value=response) as post:

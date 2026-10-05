@@ -30,6 +30,7 @@ class ProductionReviewTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(first['scenes'][0]['prompt'], 'A clearer scene-specific visual')
             self.assertEqual(post.call_count, 1)
+            self.assertIn('only in the final scene', post.call_args.args[3]['instructions'])
             self.assertTrue(json.loads((Path(tmp)/'production-review.json').read_text())['approved'])
 
     def test_high_severity_issue_blocks_assets(self):

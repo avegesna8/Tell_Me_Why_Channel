@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pipeline as p
 
-VERSION = 1
+VERSION = 2
 SCORE_NAMES = ('narration_readiness', 'visual_coverage', 'pacing', 'prompt_quality', 'consistency')
 
 
@@ -67,8 +67,12 @@ def review_storyboard(board, directory, _attempt=1):
             'characters or artwork. Repair every visual field needed to make generation reliable. '
             'Return exactly one final_visuals entry for every scene, in order, with the same ID. Do not rewrite, omit, repeat, or '
             'redivide narration. Do not invent claims beyond the narration. Use zoom only where it adds meaning and keep most scenes '
-            'still. Use low quality for simple connective cutaways and medium for key detailed scenes. approved may be true only when '
-            'all FINAL scores are at least 7 and no high-severity issue remains. A serious spoken-language or factual problem that '
+            'still. Use low quality for simple connective cutaways and medium for key detailed scenes. '
+            'For 16:9 long-form storyboards, permit a wrap-up, reflective takeaway, summary-board, end-card, or concluding '
+            'narrator composition only in the final scene. Repair every earlier scene that resembles a conclusion so it instead '
+            'depicts the concrete explanation, action, objects, or environment in that narration segment. '
+            'approved may be true only when all FINAL scores are at least 7 and no high-severity issue remains. '
+            'A serious spoken-language or factual problem that '
             'cannot be fixed through visuals must remain high severity so the run stops before audio and image generation. Flag '
             'abrupt sentence transitions, choppy phrasing, or punctuation likely to create unnatural delivery as narration issues. '
             'Identify only unusual English names, brands, acronyms, or technical terms in the narration that IndexTTS may '
