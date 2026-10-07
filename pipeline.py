@@ -908,12 +908,22 @@ def word_captions(words):
     return "\n".join(entries)
 
 
+def caption_style_metrics(width, height):
+    """Return caption sizing with extra platform-UI clearance for vertical Shorts."""
+    vertical = height > width
+    return {
+        "font_size": round(height * (0.052 if vertical else 0.062)),
+        "margin_v": round(height * (0.18 if vertical else 0.055)),
+        "margin_h": round(width * (0.08 if vertical else 0.05)),
+        "padding": max(2, round(height * 0.004)),
+    }
+
+
 def styled_captions(srt_text, width, height, words=None):
     """Bold creator captions, with word-timed yellow emphasis when available."""
-    font_size = round(height * 0.062)
-    margin_v = round(height * 0.055)
-    margin_h = round(width * 0.05)
-    padding = max(2, round(height * 0.004))
+    style = caption_style_metrics(width, height)
+    font_size, margin_v = style["font_size"], style["margin_v"]
+    margin_h, padding = style["margin_h"], style["padding"]
     header = (f"[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\n"
               "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
               "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
