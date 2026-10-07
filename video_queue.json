@@ -21,6 +21,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-do-dogs-sleep-so-much-87641cd9",
+      "idea": "Why do Dogs Sleep So Much?",
+      "notes": "Like compare how much dogs sleeps to humans and explain why dogs sleep a lot longer. Like explain why they sleep much longer and compare to sleep times of other animals. Compare domestic dogs with wolves in the wild also.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
