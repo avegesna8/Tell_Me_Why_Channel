@@ -6,6 +6,32 @@ from pathlib import Path
 import pipeline as p
 
 
+def normalize_hashtags(tags, fallbacks, *, minimum, maximum):
+    """Turn model-suggested tags into safe platform hashtags without failing packaging."""
+    normalized, seen = [], set()
+    def add(values, limit):
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            tag = ''.join(character for character in value.lstrip('#') if character.isalnum() or character == '_')[:50]
+            key = tag.casefold()
+            if not tag or key in seen:
+                continue
+            normalized.append(tag); seen.add(key)
+            if len(normalized) == limit:
+                break
+    add(tags if isinstance(tags, list) else [], maximum)
+    if len(normalized) < minimum:
+        add(fallbacks if isinstance(fallbacks, list) else [], minimum)
+    if len(normalized) < minimum:
+        for tag in ('explained', 'education', 'learnsomething'):
+            if tag not in seen:
+                normalized.append(tag); seen.add(tag)
+            if len(normalized) >= minimum:
+                break
+    return normalized
+
+
 def metadata(project, replace_kind=None):
     path = project / 'metadata.json'
     sources = {kind: json.loads((root / 'storyboard.json').read_text())
@@ -28,19 +54,21 @@ def metadata(project, replace_kind=None):
     else:
         video_schema = p.object_schema({'title': {'type': 'string'}, 'description': {'type': 'string'},
             'tags': {'type': 'array', 'items': {'type': 'string'}}, 'thumbnail_prompt': {'type': 'string'}})
-        social_post_schema = p.object_schema({
-            'caption': {'type': 'string'},
-            'hashtags': {'type': 'array', 'items': {'type': 'string'}},
-            'cover_text': {'type': 'string'},
-        })
+        def social_post_schema(minimum, maximum):
+            return p.object_schema({
+                'caption': {'type': 'string'},
+                'hashtags': {'type': 'array', 'items': {'type': 'string'},
+                             'minItems': minimum, 'maxItems': maximum},
+                'cover_text': {'type': 'string'},
+            })
         platform_schema = p.object_schema({
             'facebook_long': p.object_schema({
                 'title': {'type': 'string'},
                 'description': {'type': 'string'},
             }),
-            'facebook_reel': social_post_schema,
-            'tiktok': social_post_schema,
-            'instagram': social_post_schema,
+            'facebook_reel': social_post_schema(2, 5),
+            'tiktok': social_post_schema(3, 6),
+            'instagram': social_post_schema(3, 8),
         })
         result = p.api_post('https://api.openai.com/v1', 'OPENAI_API_KEY', '/responses', {
             'model': os.getenv('OPENAI_PLAN_MODEL', 'gpt-4.1-mini'),
@@ -79,6 +107,11 @@ def metadata(project, replace_kind=None):
         if result.get('status') != 'completed' or not parts:
             raise RuntimeError('Metadata generation incomplete or refused.')
         value = json.loads(''.join(parts))
+        hashtag_limits = {'facebook_reel': (2, 5), 'tiktok': (3, 6), 'instagram': (3, 8)}
+        for platform, (minimum, maximum) in hashtag_limits.items():
+            value['platforms'][platform]['hashtags'] = normalize_hashtags(
+                value['platforms'][platform].get('hashtags'), value.get('short', {}).get('tags', []),
+                minimum=minimum, maximum=maximum)
         if existing is not None and replace_kind == 'short':
             value['long'] = existing['long']
             if 'platforms' in existing:
