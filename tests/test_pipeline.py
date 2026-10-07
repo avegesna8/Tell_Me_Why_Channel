@@ -128,14 +128,14 @@ class PipelineTests(unittest.TestCase):
     def test_short_captions_are_smaller_and_raised_above_platform_controls(self):
         short = p.caption_style_metrics(1080, 1920)
         long = p.caption_style_metrics(1920, 1080)
-        self.assertEqual(short['font_size'], 100)
-        self.assertEqual(short['margin_v'], 346)
-        self.assertEqual(short['margin_h'], 86)
+        self.assertEqual(short['font_size'], 96)
+        self.assertEqual(short['margin_v'], 480)
+        self.assertEqual(short['margin_h'], 130)
         self.assertEqual(long['font_size'], 67)
         self.assertEqual(long['margin_v'], 59)
         ass = p.styled_captions('1\n00:00:00,000 --> 00:00:01,000\nA SHORT CAPTION\n', 1080, 1920)
-        self.assertIn('Arial,100,', ass)
-        self.assertIn(',2,86,86,346,1', ass)
+        self.assertIn('Arial,96,', ass)
+        self.assertIn(',2,130,130,480,1', ass)
 
     def test_resume_and_invalidate_only_changed_asset(self):
         audio, image = Mock(), Mock()

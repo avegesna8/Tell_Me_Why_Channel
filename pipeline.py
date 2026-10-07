@@ -912,9 +912,9 @@ def caption_style_metrics(width, height):
     """Return caption sizing with extra platform-UI clearance for vertical Shorts."""
     vertical = height > width
     return {
-        "font_size": round(height * (0.052 if vertical else 0.062)),
-        "margin_v": round(height * (0.18 if vertical else 0.055)),
-        "margin_h": round(width * (0.08 if vertical else 0.05)),
+        "font_size": round(height * (0.05 if vertical else 0.062)),
+        "margin_v": round(height * (0.25 if vertical else 0.055)),
+        "margin_h": round(width * (0.12 if vertical else 0.05)),
         "padding": max(2, round(height * 0.004)),
     }
 
