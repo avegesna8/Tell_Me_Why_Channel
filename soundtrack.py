@@ -171,16 +171,18 @@ def make_plan(project, entries):
     path = project/'soundtrack-plan.json'
     if path.exists():
         saved = json.loads(path.read_text())
-        retime = saved.get('signature') != signature and os.getenv('REUSE_SOUNDTRACK_PLAN') == '1'
-        if saved.get('signature') != signature and not retime:
-            raise ValueError('Soundtrack source changed; review/remove soundtrack-plan.json or use a new revision.')
+        retime = saved.get('signature') != signature
         available = {e['id']:e for e in entries}
         if any(ident not in available or available[ident].get('sha256') != digest
                for ident,digest in saved.get('asset_hashes',{}).items()):
             raise ValueError('A previously selected audio asset changed or is missing; use a new revision.')
         resolved = resolve_plan(saved['plan'], entries, words, seconds)
         if retime:
-            p.save_json(path, {**saved, 'signature':signature, 'retimed':True})
+            p.save_json(path, {**saved, 'signature':signature, 'retimed':True,
+                               'retime_count':int(saved.get('retime_count', 0)) + 1,
+                               'retimed_from_signature':saved.get('signature')})
+            print('Soundtrack source timing changed; reused choices and retimed effects to the current narration.',
+                  flush=True)
         return resolved
     effect_schema = p.object_schema({'effect_id':{'type':'string', **({'enum':[e['id'] for e in planner_entries if e['kind']=='sfx']} if any(e['kind']=='sfx' for e in planner_entries) else {})},
                                     'word_index':{'type':'integer'}})

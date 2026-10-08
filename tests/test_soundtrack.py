@@ -73,12 +73,13 @@ class SoundtrackTests(unittest.TestCase):
                 original=s.make_plan(root,entries)
                 self.assertEqual(original['effects'][0]['at_seconds'],2)
                 alignment.write_text(json.dumps({'words':[{'word':'Reveal','start':7,'end':8}]}))
-                with patch.dict('os.environ', {'REUSE_SOUNDTRACK_PLAN':'1'}):
-                    retimed=s.make_plan(root,entries)
+                retimed=s.make_plan(root,entries)
                 self.assertEqual(retimed['effects'][0]['at_seconds'],7)
                 self.assertEqual(api.call_count,1)
             saved=json.loads((root/'soundtrack-plan.json').read_text())
             self.assertTrue(saved['retimed'])
+            self.assertEqual(saved['retime_count'], 1)
+            self.assertIn('retimed_from_signature', saved)
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
     def test_real_mix_keeps_music_steady_preserves_duration_and_resumes_after_interruption(self):
