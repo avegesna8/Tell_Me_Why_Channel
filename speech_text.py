@@ -42,6 +42,11 @@ def normalize_spoken(text):
     # IndexTTS does not reliably pause at an em dash. Use a speech-only sentence break;
     # the written script and captions retain their original punctuation.
     replace(r"\s*—\s*([A-Za-z])", lambda m: ". " + m.group(1).upper())
+    # Quote glyphs can make IndexTTS alter or garble otherwise ordinary adjacent
+    # words. Remove paired quotation marks from speech only; scripts and captions
+    # retain the writer's original punctuation.
+    for pattern in (r'“([^”\n]+)”', r'"([^"\n]+)"', r'‘([^’\n]+)’'):
+        replace(pattern, lambda m: m.group(1))
     units = {"mm": "millimeter", "cm": "centimeter", "km": "kilometer", "kg": "kilogram", "mph": "mile per hour", "fps": "frame per second", "hz": "hertz"}
     def unit(match):
         count = int(match.group(1)); name = units[match.group(2).lower()]
@@ -67,6 +72,8 @@ def prepare_speech_text(script, pronunciations=(), *, phoneme_annotations=True,
             {"text": "GTA", "cmu": "JH IY1 . T IY1 . EY1"},
             {"text": "pricier", "cmu": "P R AY1 S IY0 ER0"},
             {"text": "gym", "cmu": "JH IH1 M"},
+            {"text": "orange", "cmu": "AO1 R AH0 N JH"},
+            {"text": "oranges", "cmu": "AO1 R AH0 N JH IH0 Z"},
         ]
         automatic = [entry for entry in automatic
                      if re.search(r"(?<!\w)" + re.escape(entry["text"]) + r"(?!\w)", spoken, re.I)]

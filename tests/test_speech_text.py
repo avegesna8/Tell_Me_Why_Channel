@@ -57,3 +57,14 @@ class SpokenFormattingTests(unittest.TestCase):
         self.assertIn("<pricier|P R AY1 S IY0 ER0>", value)
         self.assertEqual(report["pronunciations_applied"], [{
             "text": "pricier", "cmu": "P R AY1 S IY0 ER0", "occurrences": 1}])
+
+    def test_quoted_orange_words_are_unquoted_and_pronounced_for_speech_only(self):
+        script = 'The color “orange” came after the fruit "oranges."'
+        value, report = prepare_speech_text(script)
+        self.assertNotIn('“', value)
+        self.assertNotIn('”', value)
+        self.assertNotIn('"', value)
+        self.assertIn('<orange|AO1 R AH0 N JH>', value)
+        self.assertIn('<oranges|AO1 R AH0 N JH IH0 Z>.', value)
+        self.assertEqual(script, 'The color “orange” came after the fruit "oranges."')
+        self.assertEqual(len(report['normalizations']), 2)
