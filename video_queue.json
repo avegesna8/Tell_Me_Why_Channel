@@ -31,6 +31,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "how-do-airplanes-fly-1e3b8b11",
+      "idea": "How do Airplanes Fly?",
+      "notes": "Explain how the design of airplanes and how things work with wind and everything to make airplanes fly.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
