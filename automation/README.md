@@ -155,6 +155,9 @@ Authorize the actual channel owner locally:
 ```
 
 Copy values to GitHub Secrets and keep the output outside this repository.
+On macOS, double-click `reauthorize_youtube.command` for the safer automated flow. It opens Google consent,
+verifies that the selected channel ID is the Tell Me Why Brand Channel, and replaces all three GitHub
+Actions secrets through the authenticated GitHub CLI without writing or displaying the tokens.
 Google's consent/testing configuration can limit refresh-token lifetime.
 Uploads from unverified API projects can be restricted to private viewing until
 YouTube's required audit is completed; a successfully built pipeline does not
