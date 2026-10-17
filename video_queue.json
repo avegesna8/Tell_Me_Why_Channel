@@ -21,6 +21,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-do-supercars-cost-so-much-652a2966",
+      "idea": "Why do Supercars Cost so Much?",
+      "notes": "Explain why supercars like ferraris and lamborghinis cost so much more compared to normal cars. What makes supercars different and why do they cost more because of it?",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
