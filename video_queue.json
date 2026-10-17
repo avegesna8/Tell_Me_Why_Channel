@@ -41,6 +41,16 @@
       "enabled": true,
       "made_for_kids": false,
       "contains_synthetic_media": false
+    },
+    {
+      "id": "why-mosquitoes-are-so-dangerous-106a5818",
+      "idea": "Why Mosquitoes are so Dangerous?",
+      "notes": "Why are mosquitoes considered the most dangerous animals to humans. Go into depth about why they are dangerous and potentially deadly like cause they carry disease and stuff.",
+      "minutes": 6,
+      "short_seconds": 30,
+      "enabled": true,
+      "made_for_kids": false,
+      "contains_synthetic_media": false
     }
   ],
   "timezone": "America/New_York",
