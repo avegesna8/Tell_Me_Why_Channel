@@ -26,13 +26,29 @@ elif [[ $result_code -eq 0 ]] && ! gh auth status --hostname github.com >/dev/nu
   result_code=1
 fi
 
-if [[ $result_code -eq 0 ]] && ! "$AUTH_PYTHON" -c 'import google_auth_oauthlib, requests' >/dev/null 2>&1; then
-  echo "Installing the YouTube authorization helpers…"
-  "$AUTH_PYTHON" -m pip install 'google-auth-oauthlib>=1,<2' 'requests>=2.32,<3'
+if [[ $result_code -eq 0 ]]; then
+  echo "Preparing fresh YouTube authorization helpers…"
+  python3 -m venv --clear "$AUTH_VENV"
   result_code=$?
 fi
 
+if [[ $result_code -eq 0 ]] && ! "$AUTH_PYTHON" -m pip install --quiet 'google-auth-oauthlib>=1,<2' 'requests>=2.32,<3'; then
+  result_code=1
+fi
+
+if [[ $result_code -eq 0 ]] && ! "$AUTH_PYTHON" -c 'import google_auth_oauthlib, requests' >/dev/null 2>&1; then
+  echo "The YouTube authorization helpers could not be loaded."
+  echo "Delete .youtube-auth-venv and run this launcher again."
+  result_code=1
+fi
+
 if [[ $result_code -eq 0 ]]; then
+  echo "Authorization helpers are ready."
+fi
+
+if [[ $result_code -eq 0 ]]; then
+  echo "Starting Google authorization…"
+  echo "Your browser should open in a few seconds."
   echo
   "$AUTH_PYTHON" -m automation.reauthorize_youtube
   result_code=$?
