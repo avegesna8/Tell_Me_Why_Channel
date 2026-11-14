@@ -82,7 +82,7 @@ def save_queue(value):
     temp.replace(QUEUE)
 
 
-def push_queue():
+def push_queue(commit_message='Add video idea to production queue'):
     queue = load_queue()
     branch = run_git('branch', '--show-current').stdout.strip()
     if branch != 'main':
@@ -91,7 +91,7 @@ def push_queue():
     staged = run_git('diff', '--cached', '--quiet', '--', 'video_queue.json', check=False)
     committed = staged.returncode != 0
     if committed:
-        run_git('commit', '-m', 'Add video idea to production queue', '--', 'video_queue.json')
+        run_git('commit', '-m', commit_message, '--', 'video_queue.json')
     run_git('push', 'origin', 'main')
     return {'ok': True, 'committed': committed, 'count': len(queue['items']),
             'message': 'Queue validated and pushed to GitHub.', 'workflow_url': WORKFLOW_URL}
@@ -114,6 +114,28 @@ def add_idea(value):
             save_queue(queue)
         result = push_queue()
         result.update(item_id=item_id, already_present=existing is not None)
+        return result
+
+
+def reorder_queue(value):
+    ordered_ids = value.get('ordered_ids')
+    if not isinstance(ordered_ids, list) or any(not isinstance(item_id, str) for item_id in ordered_ids):
+        raise ValueError('ordered_ids must be a list of queue item IDs.')
+    if len(ordered_ids) != len(set(ordered_ids)):
+        raise ValueError('Queue order contains duplicate item IDs.')
+    with (ROOT / '.queue-web.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        sync_queue()
+        queue = load_queue()
+        items_by_id = {item['id']: item for item in queue['items']}
+        if set(ordered_ids) != set(items_by_id) or len(ordered_ids) != len(items_by_id):
+            raise ValueError('Queue changed while it was being reordered. Refresh and try again.')
+        queue['items'] = [items_by_id[item_id] for item_id in ordered_ids]
+        validate_queue(queue)
+        save_queue(queue)
+        result = push_queue('Reorder production queue')
+        result['ordered_ids'] = ordered_ids
+        result['message'] = 'Queue order saved and pushed to GitHub.'
         return result
 
 
@@ -162,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length)) if length else {}
             if path == '/api/ideas':
                 self.send_json(200, add_idea(body)); return
+            if path == '/api/reorder':
+                self.send_json(200, reorder_queue(body)); return
             if path == '/api/push':
                 with (ROOT/'.queue-web.lock').open('w') as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX)
