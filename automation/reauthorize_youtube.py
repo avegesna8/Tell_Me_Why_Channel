@@ -64,7 +64,14 @@ def main():
     parser.add_argument('--expected-channel-name', default='Tell Me Why')
     args = parser.parse_args()
 
-    client_file = args.client_secrets.expanduser() if args.client_secrets else discover_client_secrets()
+    try:
+        client_file = args.client_secrets.expanduser() if args.client_secrets else discover_client_secrets()
+    except FileNotFoundError:
+        print('Missing Google Desktop OAuth client JSON.', flush=True)
+        print('1. Open Google Cloud Console → APIs & Services → Credentials.', flush=True)
+        print('2. Download the JSON for the Desktop app OAuth 2.0 Client ID.', flush=True)
+        print('3. Leave client_secret*.json in Downloads and run this launcher again.', flush=True)
+        raise SystemExit(2)
     if not client_file.is_file():
         raise FileNotFoundError(f'OAuth client file not found: {client_file}')
     print(f'Using Desktop OAuth client: {client_file.name}', flush=True)
