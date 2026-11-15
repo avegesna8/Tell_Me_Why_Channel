@@ -47,6 +47,12 @@ def normalize_spoken(text):
     # retain the writer's original punctuation.
     for pattern in (r'“([^”\n]+)”', r'"([^"\n]+)"', r'‘([^’\n]+)’'):
         replace(pattern, lambda m: m.group(1))
+    # The GTA titles use Roman numerals in writing, but their spoken names are
+    # "GTA five" and "GTA six." Normalize the numeral only for narration so
+    # IndexTTS never reads VI as "vee eye" or garbles the title. Captions and
+    # the reviewed script keep the official GTA V / GTA VI spelling.
+    replace(r"\b(GTA|Grand Theft Auto)\s+VI\b", lambda m: m.group(1) + " six")
+    replace(r"\b(GTA|Grand Theft Auto)\s+V\b", lambda m: m.group(1) + " five")
     units = {"mm": "millimeter", "cm": "centimeter", "km": "kilometer", "kg": "kilogram", "mph": "mile per hour", "fps": "frame per second", "hz": "hertz"}
     def unit(match):
         count = int(match.group(1)); name = units[match.group(2).lower()]

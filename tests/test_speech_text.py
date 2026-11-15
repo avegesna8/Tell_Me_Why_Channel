@@ -45,6 +45,18 @@ class SpokenFormattingTests(unittest.TestCase):
         value, report = prepare_speech_text("GTA 5 became a major release.")
         self.assertIn("<GTA|JH IY1 . T IY1 . EY1> 5", value)
 
+    def test_gta_roman_numerals_use_spoken_game_names(self):
+        script = 'Could “GTA VI” improve on GTA V and Grand Theft Auto VI?'
+        value, report = prepare_speech_text(script)
+        self.assertEqual(value.count('<GTA|JH IY1 . T IY1 . EY1> six'), 1)
+        self.assertIn('<GTA|JH IY1 . T IY1 . EY1> five', value)
+        self.assertIn('Grand Theft Auto six', value)
+        self.assertNotIn(' VI', value)
+        self.assertEqual(script, 'Could “GTA VI” improve on GTA V and Grand Theft Auto VI?')
+        normalizations = {(entry['written'], entry['spoken']) for entry in report['normalizations']}
+        self.assertIn(('GTA VI', 'GTA six'), normalizations)
+        self.assertIn(('GTA V', 'GTA five'), normalizations)
+
     def test_gym_pronunciation_handles_sentence_case(self):
         value, report = prepare_speech_text("Gym access makes the gym convenient.")
         self.assertIn("<Gym|JH IH1 M>", value)
