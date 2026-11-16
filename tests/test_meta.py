@@ -58,6 +58,9 @@ class MetaTests(unittest.TestCase):
             result = client.upload_reel_draft(video, {"title": "Title", "description": "Text"}, state, Mock())
         self.assertEqual(result, "reel-id")
         self.assertTrue(state["finished"])
+        transfer = client.session.post.call_args_list[1]
+        self.assertEqual(transfer.kwargs["headers"], {
+            "Authorization": "OAuth token", "offset": "0", "file_size": "5"})
         self.assertEqual(client.session.post.call_args.kwargs["data"]["video_state"], "DRAFT")
 
     def test_instagram_reel_is_uploaded_and_published(self):
@@ -81,8 +84,20 @@ class MetaTests(unittest.TestCase):
         self.assertEqual(initiation.kwargs["data"]["media_type"], "REELS")
         self.assertEqual(initiation.kwargs["data"]["upload_type"], "resumable")
         self.assertEqual(initiation.kwargs["data"]["thumb_offset"], "1000")
+        transfer = client.session.post.call_args_list[1]
+        self.assertEqual(transfer.kwargs["headers"], {
+            "Authorization": "OAuth token", "offset": "0", "file_size": "5"})
         publish = client.session.post.call_args_list[2]
         self.assertEqual(publish.kwargs["data"], {"creation_id": "container-id"})
+
+    def test_meta_error_includes_safe_diagnostic_fields(self):
+        failed = response(status=400, payload={"error": {
+            "message": "Invalid upload request", "type": "OAuthException", "code": 100,
+            "error_subcode": 2207009, "fbtrace_id": "trace-id"}})
+        with self.assertRaisesRegex(
+                RuntimeError,
+                r"code=100; subcode=2207009; OAuthException; Invalid upload request; trace=trace-id"):
+            Meta.check(failed, "Instagram Reel transfer")
 
     def test_unknown_long_upload_is_not_retried(self):
         client = self.make_client()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from contextlib import ExitStack
 from pathlib import Path
@@ -21,7 +22,16 @@ class Meta:
         self.session = session or requests.Session()
         self.page_id = os.environ["META_PAGE_ID"]
         self.instagram_id = os.getenv("META_INSTAGRAM_ACCOUNT_ID")
-        self.session.headers["Authorization"] = "Bearer " + os.environ["META_PAGE_ACCESS_TOKEN"]
+        self.access_token = os.environ["META_PAGE_ACCESS_TOKEN"]
+        self.session.headers["Authorization"] = "Bearer " + self.access_token
+
+    def transfer_headers(self, size):
+        """Headers required by Meta's rupload resumable-transfer endpoints."""
+        return {
+            "Authorization": "OAuth " + self.access_token,
+            "offset": "0",
+            "file_size": str(size),
+        }
 
     @staticmethod
     def check(response, label):
@@ -31,9 +41,18 @@ class Meta:
             raise RuntimeError(f"Meta {label} returned an unreadable response.") from exc
         if not response.ok or payload.get("error"):
             error = payload.get("error", {})
-            code = error.get("code") if isinstance(error, dict) else None
-            kind = error.get("type") if isinstance(error, dict) else None
-            safe = ", ".join(str(value)[:80] for value in (code, kind) if value)
+            if isinstance(error, dict):
+                message = re.sub(r"\s+", " ", str(error.get("message", ""))).strip()[:240]
+                details = [
+                    f"code={error['code']}" if error.get("code") is not None else "",
+                    f"subcode={error['error_subcode']}" if error.get("error_subcode") is not None else "",
+                    str(error.get("type", ""))[:80],
+                    message,
+                    f"trace={str(error['fbtrace_id'])[:80]}" if error.get("fbtrace_id") else "",
+                ]
+                safe = "; ".join(value for value in details if value)
+            else:
+                safe = str(error)[:240]
             raise RuntimeError(
                 f"Meta {label} failed: HTTP {response.status_code}"
                 + (f" ({safe})" if safe else "")
@@ -127,7 +146,7 @@ class Meta:
             with Path(path).open("rb") as video:
                 response = self.session.post(
                     state["upload_url"],
-                    headers={"offset": "0", "file_size": str(size)},
+                    headers=self.transfer_headers(size),
                     data=video,
                     timeout=(15, 900),
                 )
@@ -200,7 +219,7 @@ class Meta:
             with Path(path).open("rb") as video:
                 response = self.session.post(
                     state["upload_url"],
-                    headers={"offset": "0", "file_size": str(size)},
+                    headers=self.transfer_headers(size),
                     data=video,
                     timeout=(15, 900),
                 )
